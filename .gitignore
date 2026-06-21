@@ -1,0 +1,21 @@
+# --- Credentials (never commit these) ---
+.env
+.env.test
+.env.deploy
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# --- Data files (too large / machine-specific) ---
+data/AllValidLicensesIndividual.csv
+data/leads_segment.csv
+data/*.lock
+data/*.tmp
+archive/rookie_strike_list_clean.csv
+
+# --- macOS ---
+.DS_Store

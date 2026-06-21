@@ -1,0 +1,28 @@
+"""
+load_env.py — layered config so you set durable values ONCE.
+
+Loads .env (everything that never changes), then overlays a profile file
+(.env.test or .env.deploy) that holds only the few lines that differ.
+
+Pick the profile with the PROFILE env var:
+    PROFILE=test   python email_sequencer.py   -> Gmail, sends to yourself
+    PROFILE=deploy python email_sequencer.py   -> SendGrid, sends to the 61k
+
+SAFETY: if PROFILE is unset, it defaults to 'test'. A bare
+`python email_sequencer.py` can therefore NEVER blast the real list by
+accident — the cannon only fires when you explicitly type PROFILE=deploy.
+"""
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+def load_layered() -> str:
+    base = Path(__file__).resolve().parent
+    load_dotenv(base / ".env")                      # durable settings
+    profile = os.getenv("PROFILE", "test").lower()  # default = test (safe)
+    pfile = base / f".env.{profile}"
+    if pfile.exists():
+        load_dotenv(pfile, override=True)           # overlay the differing lines
+    else:
+        raise SystemExit(f"Profile file not found: {pfile}")
+    return profile
