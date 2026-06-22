@@ -1,0 +1,19 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy requirements and install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY email_sequencer.py .
+COPY store.py .
+COPY load_env.py .
+
+# Create data directory for volume mount
+RUN mkdir -p /data
+
+# Run the email sequencer
+CMD ["python3", "email_sequencer.py"]
+
