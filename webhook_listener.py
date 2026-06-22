@@ -36,6 +36,7 @@ from pathlib import Path
 
 from load_env import load_layered
 from fastapi import FastAPI, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
 import store
@@ -52,6 +53,13 @@ INBOUND_SECRET = os.getenv("INBOUND_SECRET", "")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")  # used for Twilio URL validation
 
 app = FastAPI(title="Recruit Engine Webhook Listener")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 
 
 # ----------------------------------------------------------------------------
@@ -237,6 +245,19 @@ async def unsubscribe(request: Request):
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+@app.get("/leads")
+async def leads(key: str = ""):
+    """Quick CSV export — gated by INBOUND_SECRET so it's not public."""
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    try:
+        import pandas as pd
+        df = pd.read_csv(store.CSV_PATH, dtype=str).fillna("")
+        return JSONResponse(df.to_dict(orient="records"))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 # ----------------------------------------------------------------------------
