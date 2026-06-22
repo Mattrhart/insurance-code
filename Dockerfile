@@ -9,4 +9,5 @@ COPY webhook_listener.py store.py load_env.py ./
 
 RUN mkdir -p /data
 
-CMD ["sh", "-c", "uvicorn webhook_listener:app --host 0.0.0.0 --port ${PORT:-8000}"]
+EXPOSE 8000
+CMD ["uvicorn", "webhook_listener:app", "--host", "0.0.0.0", "--port", "8000"]
