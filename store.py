@@ -81,7 +81,8 @@ def _now() -> str:
 
 def _read_df() -> pd.DataFrame:
     if not CSV_PATH.exists():
-        raise SystemExit(f"Leads file not found: {CSV_PATH}")
+        CSV_PATH.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(columns=BASE_COLUMNS).to_csv(CSV_PATH, index=False)
     df = pd.read_csv(CSV_PATH, dtype=str).fillna("")
     for col in BASE_COLUMNS:
         if col not in df.columns:
