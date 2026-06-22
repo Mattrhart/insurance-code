@@ -253,8 +253,7 @@ async def leads(key: str = ""):
     if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
     try:
-        import pandas as pd
-        df = pd.read_csv(store.CSV_PATH, dtype=str).fillna("")
+        df = store._read_df()
         return JSONResponse(df.to_dict(orient="records"))
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
