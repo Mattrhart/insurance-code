@@ -18,11 +18,16 @@ from dotenv import load_dotenv
 
 def load_layered() -> str:
     base = Path(__file__).resolve().parent
-    load_dotenv(base / ".env")                      # durable settings
+
+    # Load .env files only if they exist. On Railway (and other cloud platforms)
+    # env vars are injected directly into the environment — no .env files needed.
+    env_file = base / ".env"
+    if env_file.exists():
+        load_dotenv(env_file)
+
     profile = os.getenv("PROFILE", "test").lower()  # default = test (safe)
     pfile = base / f".env.{profile}"
     if pfile.exists():
         load_dotenv(pfile, override=True)           # overlay the differing lines
-    else:
-        raise SystemExit(f"Profile file not found: {pfile}")
+
     return profile
