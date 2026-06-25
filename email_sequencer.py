@@ -213,7 +213,20 @@ def main() -> None:
         except Exception:
             pass
 
-    print(f"Done. {sent} sent this run.")
+    with store._lock:
+        df = store._read_df()
+    remaining = (df["Status"] == "Pending").sum()
+    sent_total = (df["Status"] != "Pending").sum()
+
+    print(f"\n{'='*44}")
+    print(f"  END OF RUN AUDIT")
+    print(f"{'='*44}")
+    print(f"  Sent this run      : {sent}")
+    print(f"  Sent today (total) : {sent_today + sent}")
+    print(f"  Errors this run    : {len(pending) - sent}")
+    print(f"  Pending in ledger  : {remaining}")
+    print(f"  Non-pending total  : {sent_total}")
+    print(f"{'='*44}\n")
 
 
 if __name__ == "__main__":

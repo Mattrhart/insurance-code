@@ -247,6 +247,28 @@ async def health():
     return {"ok": True}
 
 
+@app.get("/status")
+async def status(key: str = ""):
+    """Pipeline status summary — gated by INBOUND_SECRET."""
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    try:
+        df = store._read_df()
+        counts = df["Status"].value_counts().to_dict()
+        return {
+            "total": len(df),
+            "by_status": counts,
+            "pending": counts.get("Pending", 0),
+            "emailed": counts.get("EmailSent", 0),
+            "replied": counts.get("Replied", 0),
+            "qualified": counts.get("Qualified", 0),
+            "booked": counts.get("Booked", 0),
+            "dnc": counts.get("DNC", 0) + counts.get("Stopped", 0),
+        }
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/leads")
 async def leads(key: str = ""):
     """Quick CSV export — gated by INBOUND_SECRET so it's not public."""
