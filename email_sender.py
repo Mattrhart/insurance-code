@@ -30,7 +30,7 @@ COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")
 UNSUB_BASE_URL = os.environ.get(
     "UNSUB_BASE_URL", "https://your-listener.example.com/unsubscribe"
 )
-SUBJECT = os.environ.get("EMAIL_SUBJECT", "quick question about your book of business")
+SUBJECT = os.environ.get("EMAIL_SUBJECT", "Active license protocol")
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
 EMAIL2_SUBJECT = os.environ.get(
     "EMAIL2_SUBJECT", "calendar link — running the math"
@@ -78,18 +78,18 @@ def unsub_url(email: str) -> str:
 def render_plain_text(first_name: str, email: str) -> str:
     name = first_name.strip() or "there"
     link = unsub_url(email)
+    signoff = FROM_NAME or "Matt"
     return (
-        f"Hi {name},\n\n"
-        "I came across your profile and saw you're licensed and actively writing.\n\n"
-        "I help producers compare what they're keeping under their current contract "
-        "against an open-architecture model (higher splits, real ownership of your book, "
-        "overrides if you choose to build a team). No pressure and nothing to buy — if "
-        "the numbers don't beat what you have, you'll know in 15 minutes.\n\n"
-        "Are you open to seeing the backend of the pipeline?\n\n"
-        "Reply 'yes' and I'll drop my calendar link to walk you through the math.\n\n"
-        f"{FROM_NAME or COMPANY_NAME}\n"
-        f"{COMPANY_NAME}\n"
-        f"{COMPANY_ADDRESS}\n\n"
+        f"Hey {name},\n\n"
+        "I'm scaling a new production pipeline and looking for active, licensed agents "
+        "who want to completely bypass manual prospecting.\n\n"
+        "I've built a headless infrastructure that automatically captures, filters, and "
+        "books qualified leads directly to the calendar. I am looking to plug a few "
+        "operators into this system to drive volume.\n\n"
+        "Are you open to seeing the backend of the pipeline? Reply 'yes' and I'll drop "
+        "my calendar link so we can run the math.\n\n"
+        f"Best,\n{signoff}\n\n"
+        f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
         "You're receiving this as a licensed-producer outreach. If you'd rather not hear "
         f"from me, unsubscribe here and I'll remove you immediately: {link}\n"
     )
