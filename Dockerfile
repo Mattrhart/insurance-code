@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY webhook_listener.py store.py load_env.py ./
+COPY webhook_listener.py store.py load_env.py email_sender.py ./
 
 RUN mkdir -p /data
 

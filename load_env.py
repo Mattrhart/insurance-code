@@ -5,8 +5,8 @@ Loads .env (everything that never changes), then overlays a profile file
 (.env.test or .env.deploy) that holds only the few lines that differ.
 
 Pick the profile with the PROFILE env var:
-    PROFILE=test   python email_sequencer.py   -> Gmail, sends to yourself
-    PROFILE=deploy python email_sequencer.py   -> SendGrid, sends to the 61k
+    PROFILE=test   python email_sequencer.py   -> Gmail SMTP, sends to yourself
+    PROFILE=deploy python email_sequencer.py   -> Gmail SMTP, sends to the list
 
 SAFETY: if PROFILE is unset, it defaults to 'test'. A bare
 `python email_sequencer.py` can therefore NEVER blast the real list by

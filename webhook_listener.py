@@ -31,7 +31,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
+import smtplib
+import time
 from pathlib import Path
 
 from load_env import load_layered
@@ -39,7 +42,11 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
+import email_sender
 import store
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 load_layered()
@@ -245,6 +252,103 @@ async def unsubscribe(request: Request):
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+
+@app.post("/send")
+async def send_pending(key: str = ""):
+    """
+    Process a batch of Pending leads — send plain-text email via Gmail SMTP,
+    mark EmailSent on success. Gated by INBOUND_SECRET for Railway cron hits.
+    """
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    missing = email_sender.missing_config()
+    if missing:
+        return JSONResponse({"error": f"missing config: {', '.join(missing)}"}, status_code=503)
+
+    max_per_run = int(os.getenv("MAX_PER_RUN", "50"))
+    daily_cap = int(os.getenv("DAILY_CAP", "200"))
+    max_retries = int(os.getenv("MAX_RETRIES", "3"))
+    min_interval = 3600.0 / max(1, int(os.getenv("EMAILS_PER_HOUR", "60")))
+
+    try:
+        pending, sent_today = store.fetch_pending(limit=max_per_run, daily_cap=daily_cap)
+    except Exception as exc:
+        logger.exception("failed to read pending leads")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    if pending.empty:
+        return {"sent": 0, "errors": 0, "message": "no pending leads", "sent_today": sent_today}
+
+    sent = 0
+    errors = 0
+    smtp = None
+
+    try:
+        smtp = email_sender.connect()
+        for _, row in pending.iterrows():
+            email = (row["Email"] or "").strip()
+            first = row["First Name"]
+            if not email:
+                continue
+
+            delivered = False
+            for attempt in range(1, max_retries + 1):
+                try:
+                    email_sender.send_one(smtp, first, email)
+                    store.record_email_sent(email)
+                    sent += 1
+                    delivered = True
+                    logger.info("sent -> %s", email)
+                    break
+                except smtplib.SMTPRecipientsRefused:
+                    logger.warning("recipient refused: %s", email)
+                    store.update_by_email(email, "DNC", "recipient_refused")
+                    errors += 1
+                    break
+                except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError) as exc:
+                    logger.warning("SMTP reconnect needed for %s: %s", email, exc)
+                    try:
+                        if smtp:
+                            smtp.quit()
+                    except Exception:
+                        pass
+                    time.sleep(2 * attempt)
+                    smtp = email_sender.connect()
+                except smtplib.SMTPException as exc:
+                    logger.error("SMTP error for %s (attempt %s): %s", email, attempt, exc)
+                    time.sleep(2 * attempt)
+                except Exception as exc:
+                    logger.exception("unexpected send error for %s", email)
+                    time.sleep(2 * attempt)
+
+            if not delivered:
+                errors += 1
+
+            time.sleep(min_interval)
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error("SMTP auth failed: %s", exc)
+        return JSONResponse({"error": "smtp auth failed", "detail": str(exc)}, status_code=502)
+    except smtplib.SMTPException as exc:
+        logger.error("SMTP connection failed: %s", exc)
+        return JSONResponse({"error": "smtp connection failed", "detail": str(exc)}, status_code=502)
+    except Exception as exc:
+        logger.exception("send batch failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    finally:
+        if smtp:
+            try:
+                smtp.quit()
+            except Exception:
+                pass
+
+    return {
+        "sent": sent,
+        "errors": errors,
+        "batch_size": len(pending),
+        "sent_today": sent_today + sent,
+    }
 
 
 @app.get("/status")
