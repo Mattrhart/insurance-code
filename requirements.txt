@@ -4,3 +4,4 @@ python-dotenv>=1.0.0
 pandas>=2.2.0
 filelock>=3.13.0
 python-multipart>=0.0.9
+requests>=2.31.0

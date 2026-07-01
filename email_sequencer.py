@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 import os
-import smtplib
 import sys
 import time
 
@@ -58,58 +57,42 @@ def main() -> None:
         return
 
     print(
-        f"Sending {len(pending)} emails via Gmail SMTP "
+        f"Sending {len(pending)} emails via Resend "
         f"(sent {sent_today} earlier today, pacing ~{EMAILS_PER_HOUR}/hr)."
     )
 
-    smtp = email_sender.connect()
     sent = 0
-    try:
-        for _, row in pending.iterrows():
-            email = (row["Email"] or "").strip()
-            first = row["First Name"]
-            if not email:
-                print(f"  skip (no email): {first}")
-                continue
+    for _, row in pending.iterrows():
+        email = (row["Email"] or "").strip()
+        first = row["First Name"]
+        if not email:
+            print(f"  skip (no email): {first}")
+            continue
 
-            for attempt in range(1, MAX_RETRIES + 1):
-                try:
-                    email_sender.send_one(smtp, first, email)
-                    store.record_email_sent(email)
-                    sent += 1
-                    print(f"  sent -> {email}")
-                    break
-                except smtplib.SMTPRecipientsRefused:
-                    logger.warning("recipient refused: %s", email)
-                    print(f"  refused (bad address) -> {email}; marking DNC")
-                    store.update_by_email(email, "DNC", "recipient_refused")
-                    break
-                except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError) as exc:
-                    logger.warning("SMTP disconnected for %s (attempt %s): %s", email, attempt, exc)
-                    print(f"  reconnecting (attempt {attempt}) for {email}...")
-                    try:
-                        smtp.quit()
-                    except Exception:
-                        pass
-                    time.sleep(2 * attempt)
-                    smtp = email_sender.connect()
-                except smtplib.SMTPException as exc:
-                    logger.error("SMTP error for %s (attempt %s): %s", email, attempt, exc)
-                    print(f"  smtp error attempt {attempt} for {email}: {exc}")
-                    time.sleep(2 * attempt)
-                except Exception as exc:
-                    logger.exception("unexpected error for %s (attempt %s)", email, attempt)
-                    print(f"  error attempt {attempt} for {email}: {exc}")
-                    time.sleep(2 * attempt)
-            else:
-                print(f"  gave up on {email} after {MAX_RETRIES} attempts")
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                msg_id = email_sender.send_one(first, email)
+                store.record_email_sent(email)
+                sent += 1
+                print(f"  sent -> {email} (id: {msg_id})")
+                break
+            except email_sender.RecipientRefusedError:
+                logger.warning("recipient refused: %s", email)
+                print(f"  refused (bad address) -> {email}; marking DNC")
+                store.update_by_email(email, "DNC", "recipient_refused")
+                break
+            except email_sender.SendError as exc:
+                logger.error("send error for %s (attempt %s): %s", email, attempt, exc)
+                print(f"  send error attempt {attempt} for {email}: {exc}")
+                time.sleep(2 * attempt)
+            except Exception as exc:
+                logger.exception("unexpected error for %s (attempt %s)", email, attempt)
+                print(f"  error attempt {attempt} for {email}: {exc}")
+                time.sleep(2 * attempt)
+        else:
+            print(f"  gave up on {email} after {MAX_RETRIES} attempts")
 
-            time.sleep(MIN_INTERVAL)
-    finally:
-        try:
-            smtp.quit()
-        except Exception:
-            pass
+        time.sleep(MIN_INTERVAL)
 
     with store._lock:
         df = store._read_df()

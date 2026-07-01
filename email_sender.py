@@ -1,7 +1,8 @@
 """
-email_sender.py — plain-text outbound email via Gmail SMTP.
+email_sender.py — plain-text outbound email via Resend HTTP API.
 
 Shared by email_sequencer.py (cron) and webhook_listener.py (/send route).
+Uses port 443 so Railway and other hosts that block SMTP can still send.
 No HTML, no tracking pixels — plain text only for primary-inbox deliverability.
 """
 
@@ -9,23 +10,18 @@ from __future__ import annotations
 
 import logging
 import os
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-from email.utils import formataddr, make_msgid
 from urllib.parse import quote
+
+import requests
 
 import store
 
 logger = logging.getLogger(__name__)
 
-SMTP_HOST = "smtp.gmail.com"
-SMTP_PORT = 465
+RESEND_API_URL = "https://api.resend.com/emails"
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 
-SMTP_USER = os.environ.get("SMTP_USER")
-SMTP_APP_PASSWORD = os.environ.get("SMTP_APP_PASSWORD")
-
-FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USER)
+FROM_EMAIL = os.environ.get("FROM_EMAIL")
 FROM_NAME = os.environ.get("FROM_NAME", "")
 REPLY_TO = os.environ.get("REPLY_TO", FROM_EMAIL)
 
@@ -37,21 +33,36 @@ UNSUB_BASE_URL = os.environ.get(
 SUBJECT = os.environ.get("EMAIL_SUBJECT", "quick question about your book of business")
 
 
-def smtp_configured() -> bool:
-    return bool(SMTP_USER and SMTP_APP_PASSWORD and FROM_EMAIL and COMPANY_ADDRESS)
+class SendError(Exception):
+    """Resend send failed."""
+
+    recipient_refused = False
+
+
+class RecipientRefusedError(SendError):
+    recipient_refused = True
+
+
+def configured() -> bool:
+    return bool(RESEND_API_KEY and FROM_EMAIL and COMPANY_ADDRESS)
 
 
 def missing_config() -> list[str]:
     return [
         k
         for k, v in {
-            "SMTP_USER": SMTP_USER,
-            "SMTP_APP_PASSWORD": SMTP_APP_PASSWORD,
+            "RESEND_API_KEY": RESEND_API_KEY,
             "FROM_EMAIL": FROM_EMAIL,
             "COMPANY_ADDRESS": COMPANY_ADDRESS,
         }.items()
         if not v
     ]
+
+
+def _from_header() -> str:
+    if FROM_NAME:
+        return f"{FROM_NAME} <{FROM_EMAIL}>"
+    return FROM_EMAIL
 
 
 def unsub_url(email: str) -> str:
@@ -78,50 +89,77 @@ def render_plain_text(first_name: str, email: str) -> str:
     )
 
 
-def build_message(first_name: str, to_email: str) -> MIMEText:
-    msg = MIMEText(render_plain_text(first_name, to_email), "plain", "utf-8")
-    msg["From"] = formataddr((FROM_NAME, FROM_EMAIL)) if FROM_NAME else FROM_EMAIL
-    msg["To"] = to_email
-    msg["Reply-To"] = REPLY_TO
-    msg["Subject"] = SUBJECT
-    msg["Message-ID"] = make_msgid()
+def build_payload(first_name: str, to_email: str) -> dict:
     link = unsub_url(to_email)
-    msg["List-Unsubscribe"] = f"<{link}>"
-    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
-    return msg
+    payload: dict = {
+        "from": _from_header(),
+        "to": [to_email],
+        "subject": SUBJECT,
+        "text": render_plain_text(first_name, to_email),
+        "headers": {
+            "List-Unsubscribe": f"<{link}>",
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
+    }
+    if REPLY_TO:
+        payload["reply_to"] = REPLY_TO
+    return payload
 
 
-def connect() -> smtplib.SMTP_SSL:
-    ctx = ssl.create_default_context()
-    smtp = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ctx, timeout=30)
-    smtp.login(SMTP_USER, SMTP_APP_PASSWORD)
-    return smtp
+def send_one(first_name: str, to_email: str) -> str:
+    """
+    POST a plain-text email to Resend. Returns the Resend message id.
+    Raises SendError or RecipientRefusedError on failure.
+    """
+    if not configured():
+        raise SendError(f"missing config: {', '.join(missing_config())}")
 
+    try:
+        resp = requests.post(
+            RESEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=build_payload(first_name, to_email),
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        logger.error("Resend request failed for %s: %s", to_email, exc)
+        raise SendError(f"network_error: {exc}") from exc
 
-def send_one(smtp: smtplib.SMTP_SSL, first_name: str, to_email: str) -> None:
-    smtp.sendmail(FROM_EMAIL, [to_email], build_message(first_name, to_email).as_string())
+    if resp.status_code == 200:
+        return resp.json().get("id", "")
+
+    detail = resp.text
+    try:
+        detail = resp.json().get("message", detail)
+    except Exception:
+        pass
+
+    logger.error("Resend error for %s (%s): %s", to_email, resp.status_code, detail)
+
+    if resp.status_code in {400, 422}:
+        raise RecipientRefusedError(f"recipient_refused: {detail}")
+    if resp.status_code in {401, 403}:
+        raise SendError(f"auth_failed: {detail}")
+    if resp.status_code == 429:
+        raise SendError(f"rate_limited: {detail}")
+
+    raise SendError(f"resend_error ({resp.status_code}): {detail}")
 
 
 def send_one_safe(first_name: str, to_email: str) -> tuple[bool, str]:
     """Send a single plain-text email. Returns (success, note). Never raises."""
-    if not smtp_configured():
-        return False, f"missing config: {', '.join(missing_config())}"
     try:
-        with connect() as smtp:
-            send_one(smtp, first_name, to_email)
-        return True, "sent"
-    except smtplib.SMTPRecipientsRefused as exc:
+        msg_id = send_one(first_name, to_email)
+        return True, msg_id or "sent"
+    except RecipientRefusedError as exc:
         logger.warning("recipient refused %s: %s", to_email, exc)
         return False, "recipient_refused"
-    except smtplib.SMTPAuthenticationError as exc:
-        logger.error("SMTP auth failed: %s", exc)
-        return False, "auth_failed"
-    except smtplib.SMTPException as exc:
-        logger.error("SMTP error sending to %s: %s", to_email, exc)
-        return False, f"smtp_error: {exc}"
-    except OSError as exc:
-        logger.error("network error sending to %s: %s", to_email, exc)
-        return False, f"network_error: {exc}"
+    except SendError as exc:
+        logger.error("send failed for %s: %s", to_email, exc)
+        return False, str(exc)
     except Exception as exc:
         logger.exception("unexpected send failure for %s", to_email)
         return False, f"unexpected: {exc}"

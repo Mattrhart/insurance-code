@@ -33,7 +33,6 @@ import hmac
 import json
 import logging
 import os
-import smtplib
 import time
 from pathlib import Path
 
@@ -257,7 +256,7 @@ async def health():
 @app.post("/send")
 async def send_pending(key: str = ""):
     """
-    Process a batch of Pending leads — send plain-text email via Gmail SMTP,
+    Process a batch of Pending leads — send plain-text email via Resend API,
     mark EmailSent on success. Gated by INBOUND_SECRET for Railway cron hits.
     """
     if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
@@ -283,10 +282,8 @@ async def send_pending(key: str = ""):
 
     sent = 0
     errors = 0
-    smtp = None
 
     try:
-        smtp = email_sender.connect()
         for _, row in pending.iterrows():
             email = (row["Email"] or "").strip()
             first = row["First Name"]
@@ -296,28 +293,20 @@ async def send_pending(key: str = ""):
             delivered = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    email_sender.send_one(smtp, first, email)
+                    msg_id = email_sender.send_one(first, email)
                     store.record_email_sent(email)
                     sent += 1
                     delivered = True
-                    logger.info("sent -> %s", email)
+                    logger.info("sent -> %s (id: %s)", email, msg_id)
                     break
-                except smtplib.SMTPRecipientsRefused:
+                except email_sender.RecipientRefusedError:
                     logger.warning("recipient refused: %s", email)
                     store.update_by_email(email, "DNC", "recipient_refused")
                     errors += 1
+                    delivered = True
                     break
-                except (smtplib.SMTPServerDisconnected, smtplib.SMTPConnectError) as exc:
-                    logger.warning("SMTP reconnect needed for %s: %s", email, exc)
-                    try:
-                        if smtp:
-                            smtp.quit()
-                    except Exception:
-                        pass
-                    time.sleep(2 * attempt)
-                    smtp = email_sender.connect()
-                except smtplib.SMTPException as exc:
-                    logger.error("SMTP error for %s (attempt %s): %s", email, attempt, exc)
+                except email_sender.SendError as exc:
+                    logger.error("send error for %s (attempt %s): %s", email, attempt, exc)
                     time.sleep(2 * attempt)
                 except Exception as exc:
                     logger.exception("unexpected send error for %s", email)
@@ -327,21 +316,9 @@ async def send_pending(key: str = ""):
                 errors += 1
 
             time.sleep(min_interval)
-    except smtplib.SMTPAuthenticationError as exc:
-        logger.error("SMTP auth failed: %s", exc)
-        return JSONResponse({"error": "smtp auth failed", "detail": str(exc)}, status_code=502)
-    except smtplib.SMTPException as exc:
-        logger.error("SMTP connection failed: %s", exc)
-        return JSONResponse({"error": "smtp connection failed", "detail": str(exc)}, status_code=502)
     except Exception as exc:
         logger.exception("send batch failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
-    finally:
-        if smtp:
-            try:
-                smtp.quit()
-            except Exception:
-                pass
 
     return {
         "sent": sent,
