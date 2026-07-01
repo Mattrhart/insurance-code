@@ -31,6 +31,11 @@ UNSUB_BASE_URL = os.environ.get(
     "UNSUB_BASE_URL", "https://your-listener.example.com/unsubscribe"
 )
 SUBJECT = os.environ.get("EMAIL_SUBJECT", "quick question about your book of business")
+CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
+EMAIL2_SUBJECT = os.environ.get(
+    "EMAIL2_SUBJECT", "calendar link — running the math"
+)
+RESEND_RECEIVING_URL = "https://api.resend.com/emails/receiving"
 
 
 class SendError(Exception):
@@ -80,12 +85,25 @@ def render_plain_text(first_name: str, email: str) -> str:
         "against an open-architecture model (higher splits, real ownership of your book, "
         "overrides if you choose to build a team). No pressure and nothing to buy — if "
         "the numbers don't beat what you have, you'll know in 15 minutes.\n\n"
-        "Worth a quick look? Just reply to this email and I'll send a couple of times.\n\n"
+        "Are you open to seeing the backend of the pipeline?\n\n"
+        "Reply 'yes' and I'll drop my calendar link to walk you through the math.\n\n"
         f"{FROM_NAME or COMPANY_NAME}\n"
         f"{COMPANY_NAME}\n"
         f"{COMPANY_ADDRESS}\n\n"
         "You're receiving this as a licensed-producer outreach. If you'd rather not hear "
         f"from me, unsubscribe here and I'll remove you immediately: {link}\n"
+    )
+
+
+def render_calendly_text(first_name: str) -> str:
+    name = first_name.strip()
+    greeting = f"Hi {name},\n\n" if name else ""
+    signoff = FROM_NAME or "Matt"
+    return (
+        f"{greeting}"
+        "Appreciate the reply.\n\n"
+        f"Here is my direct calendar link so we can run the math: {CALENDLY_LINK}\n\n"
+        f"Talk soon,\n{signoff}\n"
     )
 
 
@@ -146,6 +164,66 @@ def send_one(first_name: str, to_email: str) -> str:
     if resp.status_code == 429:
         raise SendError(f"rate_limited: {detail}")
 
+    raise SendError(f"resend_error ({resp.status_code}): {detail}")
+
+
+def fetch_received_text(email_id: str) -> str:
+    """Fetch plain-text body of an inbound email from Resend (webhook is metadata-only)."""
+    if not RESEND_API_KEY or not email_id:
+        return ""
+    try:
+        resp = requests.get(
+            f"{RESEND_RECEIVING_URL}/{email_id}",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return ""
+        return resp.json().get("text") or ""
+    except requests.RequestException as exc:
+        logger.warning("failed to fetch received email %s: %s", email_id, exc)
+        return ""
+
+
+def send_calendly_link(to_email: str, first_name: str = "") -> str:
+    """Email 2 — Calendly link after a reply. Returns Resend message id on 200."""
+    if not configured():
+        raise SendError(f"missing config: {', '.join(missing_config())}")
+    if not CALENDLY_LINK:
+        raise SendError("missing config: CALENDLY_LINK")
+
+    payload: dict = {
+        "from": _from_header(),
+        "to": [to_email],
+        "subject": EMAIL2_SUBJECT,
+        "text": render_calendly_text(first_name),
+    }
+    if REPLY_TO:
+        payload["reply_to"] = REPLY_TO
+
+    try:
+        resp = requests.post(
+            RESEND_API_URL,
+            headers={
+                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        logger.error("Resend calendly send failed for %s: %s", to_email, exc)
+        raise SendError(f"network_error: {exc}") from exc
+
+    if resp.status_code == 200:
+        return resp.json().get("id", "")
+
+    detail = resp.text
+    try:
+        detail = resp.json().get("message", detail)
+    except Exception:
+        pass
+    logger.error("Resend calendly error for %s (%s): %s", to_email, resp.status_code, detail)
     raise SendError(f"resend_error ({resp.status_code}): {detail}")
 
 

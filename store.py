@@ -66,8 +66,9 @@ FUNNEL_RANK = {
     "Pending": 0,
     "EmailSent": 1,
     "Replied": 2,
-    "Qualified": 3,
-    "Booked": 4,
+    "LinkSent": 3,
+    "Qualified": 4,
+    "Booked": 5,
 }
 # Terminal suppression states always win, regardless of current funnel position.
 SUPPRESSED = {"Stopped", "DNC"}
@@ -166,6 +167,20 @@ def record_email_sent(email: str) -> bool:
         df.loc[mask, "StatusUpdatedAt"] = now
         _atomic_write(df)
         return True
+
+
+def get_lead(email: str) -> Optional[dict]:
+    """Return the ledger row for an email address, or None if not found."""
+    with _lock:
+        df = _read_df()
+        mask = df["Email"].str.lower() == email.lower().strip()
+        if not mask.any():
+            return None
+        return df[mask].iloc[0].to_dict()
+
+
+def record_link_sent(email: str) -> bool:
+    return update_by_email(email, "LinkSent", "calendly_link_sent")
 
 
 def _apply(

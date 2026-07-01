@@ -14,6 +14,7 @@ DIFFERENT systems:
   INBOUND parse   -> the recipient actually emailed you back (a real reply)
       /webhooks/sendgrid/inbound      (SendGrid "Inbound Parse")
       /webhooks/mailgun/inbound       (Mailgun "Routes")
+      /inbound                        (Resend Inbound — auto-fires Email 2)
 
   SMS (warm only) -> for opted-in texting later
       /webhooks/twilio/sms
@@ -56,6 +57,7 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
 # Inbound parse webhooks aren't signed by the provider; protect them with a
 # shared secret in the query string (?key=...) that only you and the provider know.
 INBOUND_SECRET = os.getenv("INBOUND_SECRET", "")
+RESEND_WEBHOOK_SECRET = os.getenv("RESEND_WEBHOOK_SECRET", "")
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")  # used for Twilio URL validation
 
 app = FastAPI(title="Recruit Engine Webhook Listener")
@@ -210,6 +212,87 @@ def _extract_email(raw: str) -> str:
 
 
 # ----------------------------------------------------------------------------
+# Resend Inbound Webhook — reply triggers Email 2 (Calendly link)
+# ----------------------------------------------------------------------------
+def verify_resend_webhook(payload: bytes, headers) -> bool:
+    if not RESEND_WEBHOOK_SECRET:
+        return False
+    try:
+        from svix.webhooks import Webhook
+
+        wh = Webhook(RESEND_WEBHOOK_SECRET)
+        wh.verify(
+            payload.decode(),
+            {
+                "svix-id": headers.get("svix-id", ""),
+                "svix-timestamp": headers.get("svix-timestamp", ""),
+                "svix-signature": headers.get("svix-signature", ""),
+            },
+        )
+        return True
+    except Exception:
+        return False
+
+
+@app.post("/inbound")
+async def resend_inbound(request: Request):
+    """
+    Resend fires this on email.received. Only processes replies from ledger
+    leads in EmailSent state — ignores unknown senders and spam.
+    """
+    raw = await request.body()
+    if not verify_resend_webhook(raw, request.headers):
+        return JSONResponse({"error": "bad signature"}, status_code=403)
+
+    try:
+        event = json.loads(raw.decode() or "{}")
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+
+    if event.get("type") != "email.received":
+        return {"handled": 0, "reason": "ignored event type"}
+
+    data = event.get("data", {})
+    from_email = _extract_email(data.get("from", ""))
+    email_id = data.get("email_id", "")
+    if not from_email:
+        return {"handled": 0, "reason": "missing sender"}
+
+    lead = store.get_lead(from_email)
+    if not lead:
+        logger.info("inbound ignored — %s not in ledger", from_email)
+        return {"handled": 0, "reason": "not in ledger"}
+
+    status = (lead.get("Status") or "").strip()
+    if status != "EmailSent":
+        logger.info("inbound ignored — %s status is %s", from_email, status)
+        return {"handled": 0, "reason": f"status is {status}"}
+
+    body = email_sender.fetch_received_text(email_id)
+    if store.classify_inbound(body) == "Stopped":
+        store.update_by_email(from_email, "Stopped", "resend_inbound_optout")
+        return {"handled": 1, "status": "Stopped"}
+
+    store.update_by_email(from_email, "Replied", "resend_inbound_reply")
+
+    first_name = (lead.get("First Name") or "").strip()
+    try:
+        msg_id = email_sender.send_calendly_link(from_email, first_name)
+        store.record_link_sent(from_email)
+        logger.info("calendly link sent -> %s (id: %s)", from_email, msg_id)
+        return {"handled": 1, "status": "LinkSent", "msg_id": msg_id}
+    except email_sender.SendError as exc:
+        logger.error("calendly send failed for %s: %s", from_email, exc)
+        return JSONResponse(
+            {"handled": 1, "status": "Replied", "error": str(exc)},
+            status_code=502,
+        )
+    except Exception as exc:
+        logger.exception("inbound handler failed for %s", from_email)
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ----------------------------------------------------------------------------
 # Twilio inbound SMS (warm channel; HMAC-SHA1 over URL + sorted params)
 # ----------------------------------------------------------------------------
 @app.post("/webhooks/twilio/sms")
@@ -342,6 +425,7 @@ async def status(key: str = ""):
             "pending": counts.get("Pending", 0),
             "emailed": counts.get("EmailSent", 0),
             "replied": counts.get("Replied", 0),
+            "link_sent": counts.get("LinkSent", 0),
             "qualified": counts.get("Qualified", 0),
             "booked": counts.get("Booked", 0),
             "dnc": counts.get("DNC", 0) + counts.get("Stopped", 0),
