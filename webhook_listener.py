@@ -38,7 +38,7 @@ import time
 from pathlib import Path
 
 from load_env import load_layered
-from fastapi import FastAPI, Request, Response, status
+from fastapi import FastAPI, File, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
@@ -367,7 +367,8 @@ async def send_pending(key: str = ""):
     errors = 0
 
     try:
-        for _, row in pending.iterrows():
+        pending_rows = list(pending.iterrows())
+        for i, (_, row) in enumerate(pending_rows):
             email = (row["Email"] or "").strip()
             first = row["First Name"]
             if not email:
@@ -398,7 +399,8 @@ async def send_pending(key: str = ""):
             if not delivered:
                 errors += 1
 
-            time.sleep(min_interval)
+            if i < len(pending_rows) - 1:
+                time.sleep(min_interval)
     except Exception as exc:
         logger.exception("send batch failed")
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -444,6 +446,30 @@ async def leads(key: str = ""):
         return JSONResponse(df.to_dict(orient="records"))
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.post("/import")
+async def import_leads(key: str = "", file: UploadFile = File(...)):
+    """
+    Upload a CSV to replace the ledger — bypasses Railway volume UI.
+    Use leads_segment.csv from your local machine.
+    """
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    try:
+        data = await file.read()
+        count = store.import_csv_bytes(data)
+        logger.info("imported %s leads to %s", count, store.CSV_PATH)
+        return {
+            "imported": count,
+            "path": str(store.CSV_PATH),
+            "pending": count,
+        }
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("import failed")
+        return JSONResponse({"error": str(exc)}, status_code=500)
 
 
 # ----------------------------------------------------------------------------

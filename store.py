@@ -111,6 +111,34 @@ def verify_unsub_token(email: str, token: str) -> bool:
     return hmac.compare_digest(make_unsub_token(email), token or "")
 
 
+def import_csv_bytes(data: bytes) -> int:
+    """
+    Replace the ledger from an uploaded CSV. Accepts leads_segment.csv format
+    (Email) or raw FL format (Email Address). Returns row count written.
+    """
+    import io
+
+    df = pd.read_csv(io.BytesIO(data), dtype=str).fillna("")
+    if "Email Address" in df.columns and "Email" not in df.columns:
+        df["Email"] = df["Email Address"]
+    if "First Name" not in df.columns or "Email" not in df.columns:
+        raise ValueError("CSV must include 'First Name' and 'Email' columns")
+
+    df["Email"] = df["Email"].str.lower().str.strip()
+    df = df[df["Email"].str.contains("@", na=False)]
+    if df.empty:
+        raise ValueError("no valid email rows found")
+
+    for col in BASE_COLUMNS:
+        if col not in df.columns:
+            df[col] = ""
+    df.loc[df["Status"].str.strip() == "", "Status"] = "Pending"
+
+    with _lock:
+        _atomic_write(df)
+        return len(df)
+
+
 # ----------------------------------------------------------------------------
 # Inbound opt-ins from the website form
 # ----------------------------------------------------------------------------
