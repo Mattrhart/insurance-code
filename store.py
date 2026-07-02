@@ -111,10 +111,10 @@ def verify_unsub_token(email: str, token: str) -> bool:
     return hmac.compare_digest(make_unsub_token(email), token or "")
 
 
-def import_csv_bytes(data: bytes) -> int:
+def import_csv_bytes(data: bytes) -> tuple[int, int]:
     """
     Replace the ledger from an uploaded CSV. Accepts leads_segment.csv format
-    (Email) or raw FL format (Email Address). Returns row count written.
+    (Email) or raw FL format (Email Address). Returns (rows_written, dupes_dropped).
     """
     import io
 
@@ -129,6 +129,10 @@ def import_csv_bytes(data: bytes) -> int:
     if df.empty:
         raise ValueError("no valid email rows found")
 
+    before = len(df)
+    df = df.drop_duplicates(subset=["Email"], keep="first")
+    dropped = before - len(df)
+
     for col in BASE_COLUMNS:
         if col not in df.columns:
             df[col] = ""
@@ -136,7 +140,7 @@ def import_csv_bytes(data: bytes) -> int:
 
     with _lock:
         _atomic_write(df)
-        return len(df)
+        return len(df), dropped
 
 
 # ----------------------------------------------------------------------------
@@ -176,7 +180,12 @@ def fetch_pending(limit: int, daily_cap: int) -> tuple[pd.DataFrame, int]:
         sent_today = int(df["EmailSentAt"].str.startswith(today).sum())
         remaining = max(0, daily_cap - sent_today)
         n = min(limit, remaining)
-        pending = df[df["Status"] == "Pending"].head(n).copy()
+        pending = (
+            df[df["Status"] == "Pending"]
+            .drop_duplicates(subset=["Email"], keep="first")
+            .head(n)
+            .copy()
+        )
         return pending, sent_today
 
 

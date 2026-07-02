@@ -421,11 +421,14 @@ async def status(key: str = ""):
     try:
         df = store._read_df()
         counts = df["Status"].value_counts().to_dict()
+        emailed_rows = df[df["Status"] == "EmailSent"]
         return {
             "total": len(df),
+            "unique_emails": df["Email"].nunique(),
             "by_status": counts,
             "pending": counts.get("Pending", 0),
             "emailed": counts.get("EmailSent", 0),
+            "emailed_unique": emailed_rows["Email"].nunique(),
             "replied": counts.get("Replied", 0),
             "link_sent": counts.get("LinkSent", 0),
             "qualified": counts.get("Qualified", 0),
@@ -458,10 +461,11 @@ async def import_leads(key: str = "", file: UploadFile = File(...)):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
     try:
         data = await file.read()
-        count = store.import_csv_bytes(data)
-        logger.info("imported %s leads to %s", count, store.CSV_PATH)
+        count, dropped = store.import_csv_bytes(data)
+        logger.info("imported %s leads (%s dupes dropped) to %s", count, dropped, store.CSV_PATH)
         return {
             "imported": count,
+            "dupes_dropped": dropped,
             "path": str(store.CSV_PATH),
             "pending": count,
         }
