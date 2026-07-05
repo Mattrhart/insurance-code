@@ -30,9 +30,9 @@ COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")
 UNSUB_BASE_URL = os.environ.get(
     "UNSUB_BASE_URL", "https://your-listener.example.com/unsubscribe"
 )
-SUBJECT = os.environ.get("EMAIL_SUBJECT", "quick question")
+SUBJECT = os.environ.get("EMAIL_SUBJECT", "union members expecting a call")
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
-EMAIL2_SUBJECT = os.environ.get("EMAIL2_SUBJECT", "calendar link")
+EMAIL2_SUBJECT = os.environ.get("EMAIL2_SUBJECT", "calendar for the union walkthrough")
 RESEND_RECEIVING_URL = "https://api.resend.com/emails/receiving"
 
 
@@ -79,12 +79,14 @@ def render_plain_text(first_name: str, email: str) -> str:
     signoff = FROM_NAME or "Matt"
     return (
         f"Hey {name},\n\n"
-        "Saw you're licensed and actively writing. I'm putting together a small group "
-        "of producers to compare what they're keeping under their current contract "
-        "against an open-architecture model — splits, book ownership, override structure.\n\n"
-        "No deck, no pressure. If the numbers don't beat what you have, you'll know "
-        "in fifteen minutes.\n\n"
-        "Open to a quick look? Reply 'yes' and I'll send my calendar link.\n\n"
+        "Quick one — we're partnered with labor unions in Florida. Their members "
+        "get a no-cost benefit through the union, and they're told to expect a "
+        "licensed agent to walk them through it.\n\n"
+        "These aren't cold leads. They know the call is coming. You run a "
+        "word-for-word script (phone + Zoom), walk them through what they already "
+        "have, and present the permanent coverage option. Referrals come built in.\n\n"
+        "I'm opening a few producer slots on our FL roster this week. If you want "
+        "the script and the lead flow, reply \"yes\" and I'll send my calendar link.\n\n"
         f"Best,\n{signoff}\n\n"
         f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
         "You're receiving this as a licensed-producer outreach. If you'd rather not hear "
@@ -99,7 +101,8 @@ def render_calendly_text(first_name: str) -> str:
     return (
         f"{greeting}"
         "Appreciate the reply.\n\n"
-        f"Here is my direct calendar link so we can run the math: {CALENDLY_LINK}\n\n"
+        "Grab a 15-minute slot here — I'll walk you through the union lead flow, "
+        f"the script, and what a typical week of dials looks like:\n\n{CALENDLY_LINK}\n\n"
         f"Talk soon,\n{signoff}\n"
     )
 

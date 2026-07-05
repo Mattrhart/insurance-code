@@ -489,9 +489,10 @@ async def optin(request: Request):
     first_name = (data.get("first_name") or "").strip()
     email = (data.get("email") or "").strip()
     phone = (data.get("phone") or "").strip()
+    source = (data.get("source") or "").strip()
 
     if not first_name or not email or "@" not in email:
         return JSONResponse({"error": "first_name and email required"}, status_code=400)
 
-    added = store.add_lead(first_name, email, phone)
+    added = store.add_lead(first_name, email, phone, source=source)
     return JSONResponse({"added": added, "duplicate": not added}, status_code=200)

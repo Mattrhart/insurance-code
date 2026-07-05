@@ -53,6 +53,7 @@ BASE_COLUMNS = [
     "First Name",
     "Email",
     "Business Phone",
+    "Source",
     "Status",
     "EmailSentAt",
     "StatusUpdatedAt",
@@ -70,6 +71,8 @@ FUNNEL_RANK = {
     "Qualified": 4,
     "Booked": 5,
 }
+# Website form submissions — skip cold-outreach queue (fetch_pending only pulls Pending).
+WEBSITE_OPTIN_PREFIX = "trademediaconsulting.com/"
 # Terminal suppression states always win, regardless of current funnel position.
 SUPPRESSED = {"Stopped", "DNC"}
 
@@ -146,20 +149,46 @@ def import_csv_bytes(data: bytes) -> tuple[int, int]:
 # ----------------------------------------------------------------------------
 # Inbound opt-ins from the website form
 # ----------------------------------------------------------------------------
-def add_lead(first_name: str, email: str, phone: str = "") -> bool:
+def _is_website_optin(source: str) -> bool:
+    return (source or "").strip().startswith(WEBSITE_OPTIN_PREFIX)
+
+
+def add_lead(
+    first_name: str,
+    email: str,
+    phone: str = "",
+    source: str = "",
+) -> bool:
     """
-    Add a new Pending lead if the email isn't already in the list.
-    Returns True if added, False if it's a duplicate (already present).
+    Add a new lead if the email isn't already in the list.
+    Website opt-ins get Source tagged and Status OptedIn (not cold-emailed).
+    Returns True if added, False if duplicate (existing row updated for website resubmits).
     """
+    email = email.lower().strip()
+    source = (source or "").strip()
+    website = _is_website_optin(source)
+
     with _lock:
         df = _read_df()
-        if (df["Email"].str.lower() == email.lower().strip()).any():
+        mask = df["Email"].str.lower() == email
+        if mask.any():
+            if website:
+                idx = df[mask].index[0]
+                df.at[idx, "First Name"] = first_name.strip().title()
+                if phone.strip():
+                    df.at[idx, "Business Phone"] = phone.strip()
+                df.at[idx, "Source"] = source
+                if df.at[idx, "Status"] not in SUPPRESSED:
+                    df.at[idx, "Status"] = "OptedIn"
+                    df.at[idx, "StatusUpdatedAt"] = _now()
+                _atomic_write(df)
             return False
         new_row = {col: "" for col in BASE_COLUMNS}
         new_row["First Name"] = first_name.strip().title()
-        new_row["Email"] = email.lower().strip()
+        new_row["Email"] = email
         new_row["Business Phone"] = phone.strip()
-        new_row["Status"] = "Pending"
+        new_row["Source"] = source
+        new_row["Status"] = "OptedIn" if website else "Pending"
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
         _atomic_write(df)
         return True
