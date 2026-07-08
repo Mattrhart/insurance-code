@@ -79,18 +79,23 @@ def render_plain_text(first_name: str, email: str) -> str:
     signoff = FROM_NAME or "Matt"
     return (
         f"Hey {name},\n\n"
-        "Quick one — we're partnered with labor unions in Florida. Their members "
-        "get a no-cost benefit through the union, and they're told to expect a "
+        "Quick one. We are partnered with labor unions in Florida. Their members "
+        "get a no cost benefit through the union, and they are told to expect a "
         "licensed agent to walk them through it.\n\n"
-        "These aren't cold leads. They know the call is coming. You run a "
-        "word-for-word script (phone + Zoom), walk them through what they already "
+        "These are not cold leads. They know the call is coming. You run a "
+        "word for word script (phone and Zoom), walk them through what they already "
         "have, and present the permanent coverage option. Referrals come built in.\n\n"
-        "I'm opening a few producer slots on our FL roster this week. If you want "
-        "the script and the lead flow, reply \"yes\" and I'll send my calendar link.\n\n"
+        "On top of the lead flow, you join a community that actually shows up. "
+        "Every morning the group chat is on fire. Gym clips, a bible verse, a page "
+        "from a motivational book or audiobook. Everyone hypes each other up. "
+        "Pure discipline.\n\n"
+        "I am opening a few producer slots on our FL roster this week. If you want "
+        "the script, the leads, and the community, reply yes and I will send my "
+        "calendar link.\n\n"
         f"Best,\n{signoff}\n\n"
         f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
-        "You're receiving this as a licensed-producer outreach. If you'd rather not hear "
-        f"from me, unsubscribe here and I'll remove you immediately: {link}\n"
+        "You are receiving this as licensed producer outreach. If you would rather not hear "
+        f"from me, unsubscribe here and I will remove you immediately: {link}\n"
     )
 
 
@@ -101,8 +106,9 @@ def render_calendly_text(first_name: str) -> str:
     return (
         f"{greeting}"
         "Appreciate the reply.\n\n"
-        "Grab a 15-minute slot here — I'll walk you through the union lead flow, "
-        f"the script, and what a typical week of dials looks like:\n\n{CALENDLY_LINK}\n\n"
+        "Grab a 15 minute slot here. I will walk you through the union lead flow, "
+        f"the script, the community, and what a typical week of dials looks like:\n\n"
+        f"{CALENDLY_LINK}\n\n"
         f"Talk soon,\n{signoff}\n"
     )
 
