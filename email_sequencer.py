@@ -33,7 +33,7 @@ load_layered()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "50"))
+MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "15"))
 DAILY_CAP = int(os.getenv("DAILY_CAP", "200"))
 EMAILS_PER_HOUR = int(os.getenv("EMAILS_PER_HOUR", "60"))
 MIN_INTERVAL = 3600.0 / max(1, EMAILS_PER_HOUR)

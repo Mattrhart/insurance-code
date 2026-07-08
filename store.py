@@ -218,6 +218,44 @@ def fetch_pending(limit: int, daily_cap: int) -> tuple[pd.DataFrame, int]:
         return pending, sent_today
 
 
+FOLLOWUP_STATUSES = {"Replied", "LinkSent"}
+FOLLOWUP_COLUMNS = [
+    "First Name",
+    "Email",
+    "Business Phone",
+    "Status",
+    "StatusUpdatedAt",
+    "LastEvent",
+    "LastEventAt",
+]
+
+
+def fetch_followups() -> list[dict]:
+    """Leads who replied but haven't booked — deduped by email, newest first."""
+    with _lock:
+        df = _read_df()
+        df = df[df["Status"].isin(FOLLOWUP_STATUSES)]
+        if df.empty:
+            return []
+        df = df.drop_duplicates(subset=["Email"], keep="last")
+        cols = [c for c in FOLLOWUP_COLUMNS if c in df.columns]
+        df = df.sort_values("StatusUpdatedAt", ascending=False)
+        return df[cols].to_dict(orient="records")
+
+
+def fetch_by_status(status: str) -> list[dict]:
+    """Return deduped leads for a single status, newest first."""
+    with _lock:
+        df = _read_df()
+        df = df[df["Status"] == status]
+        if df.empty:
+            return []
+        df = df.drop_duplicates(subset=["Email"], keep="last")
+        cols = [c for c in BASE_COLUMNS if c in df.columns]
+        df = df.sort_values("StatusUpdatedAt", ascending=False)
+        return df[cols].to_dict(orient="records")
+
+
 # ----------------------------------------------------------------------------
 # Writes — all go through advance_status so the funnel logic stays in one place
 # ----------------------------------------------------------------------------

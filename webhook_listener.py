@@ -349,7 +349,7 @@ async def send_pending(key: str = ""):
     if missing:
         return JSONResponse({"error": f"missing config: {', '.join(missing)}"}, status_code=503)
 
-    max_per_run = int(os.getenv("MAX_PER_RUN", "50"))
+    max_per_run = int(os.getenv("MAX_PER_RUN", "15"))
     daily_cap = int(os.getenv("DAILY_CAP", "200"))
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     min_interval = 3600.0 / max(1, int(os.getenv("EMAILS_PER_HOUR", "60")))
@@ -431,6 +431,7 @@ async def status(key: str = ""):
             "emailed_unique": emailed_rows["Email"].nunique(),
             "replied": counts.get("Replied", 0),
             "link_sent": counts.get("LinkSent", 0),
+            "followups": counts.get("Replied", 0) + counts.get("LinkSent", 0),
             "qualified": counts.get("Qualified", 0),
             "booked": counts.get("Booked", 0),
             "dnc": counts.get("DNC", 0) + counts.get("Stopped", 0),
@@ -439,12 +440,26 @@ async def status(key: str = ""):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-@app.get("/leads")
-async def leads(key: str = ""):
-    """Quick CSV export — gated by INBOUND_SECRET so it's not public."""
+@app.get("/followups")
+async def followups(key: str = ""):
+    """Leads who replied but haven't booked (Replied or LinkSent)."""
     if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
     try:
+        rows = store.fetch_followups()
+        return {"count": len(rows), "leads": rows}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/leads")
+async def leads(key: str = "", status: str = ""):
+    """Ledger export — optional ?status=LinkSent filter. Gated by INBOUND_SECRET."""
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    try:
+        if status.strip():
+            return JSONResponse(store.fetch_by_status(status.strip()))
         df = store._read_df()
         return JSONResponse(df.to_dict(orient="records"))
     except Exception as e:
