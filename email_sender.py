@@ -94,8 +94,8 @@ def render_plain_text(first_name: str, email: str) -> str:
         "calendar link.\n\n"
         f"Best,\n{signoff}\n\n"
         f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
-        "You are receiving this as licensed producer outreach. If you would rather not hear "
-        f"from me, unsubscribe here and I will remove you immediately: {link}\n"
+        "If this is not for you, no worries. Unsubscribe here and I will take you off:\n"
+        f"{link}\n"
     )
 
 
