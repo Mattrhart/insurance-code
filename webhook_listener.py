@@ -499,6 +499,43 @@ async def import_leads(key: str = "", file: UploadFile = File(...)):
 
 
 # ----------------------------------------------------------------------------
+# Seed / test send — force Email 1 to a specific address (bypasses Pending queue)
+# ----------------------------------------------------------------------------
+@app.post("/seed")
+async def seed_send(key: str = "", email: str = "", first_name: str = "Matthew"):
+    """
+    Send one Email 1 to a specific inbox for warmup / reply testing.
+    Prefers FROM_EMAIL_2 when set so seeds exercise the new domain.
+    Gated by INBOUND_SECRET.
+    """
+    if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    email = (email or "").strip().lower()
+    first_name = (first_name or "Matthew").strip() or "Matthew"
+    if not email or "@" not in email:
+        return JSONResponse({"error": "email required"}, status_code=400)
+
+    missing = email_sender.missing_config()
+    if missing:
+        return JSONResponse({"error": f"missing config: {', '.join(missing)}"}, status_code=503)
+
+    store.add_lead(first_name, email, "", source="seed")
+    sender = email_sender.FROM_EMAIL_2 or email_sender.pick_from_email() or email_sender.FROM_EMAIL
+    try:
+        msg_id = email_sender.send_one(first_name, email, from_email=sender)
+        store.record_email_sent(email, sent_domain=sender)
+        logger.info("seed sent -> %s from %s (id: %s)", email, sender, msg_id)
+        return {"sent": True, "email": email, "from": sender, "id": msg_id}
+    except email_sender.RecipientRefusedError as exc:
+        store.update_by_email(email, "DNC", "recipient_refused")
+        return JSONResponse({"sent": False, "error": str(exc)}, status_code=422)
+    except email_sender.SendError as exc:
+        logger.error("seed send failed for %s: %s", email, exc)
+        return JSONResponse({"sent": False, "error": str(exc)}, status_code=502)
+
+
+# ----------------------------------------------------------------------------
 # Inbound opt-in from the website lead-capture form
 # ----------------------------------------------------------------------------
 @app.post("/optin")
