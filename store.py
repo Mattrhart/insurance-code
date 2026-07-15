@@ -55,6 +55,7 @@ BASE_COLUMNS = [
     "Business Phone",
     "Source",
     "Status",
+    "SentDomain",
     "EmailSentAt",
     "StatusUpdatedAt",
     "LastEvent",
@@ -259,7 +260,7 @@ def fetch_by_status(status: str) -> list[dict]:
 # ----------------------------------------------------------------------------
 # Writes — all go through advance_status so the funnel logic stays in one place
 # ----------------------------------------------------------------------------
-def record_email_sent(email: str) -> bool:
+def record_email_sent(email: str, sent_domain: str = "") -> bool:
     with _lock:
         df = _read_df()
         mask = df["Email"].str.lower() == email.lower()
@@ -269,8 +270,25 @@ def record_email_sent(email: str) -> bool:
         df.loc[mask, "Status"] = "EmailSent"
         df.loc[mask, "EmailSentAt"] = now
         df.loc[mask, "StatusUpdatedAt"] = now
+        if sent_domain:
+            df.loc[mask, "SentDomain"] = sent_domain.strip().lower()
         _atomic_write(df)
         return True
+
+
+def count_sent_today_by_domain(domain: str) -> int:
+    """Count EmailSent rows today whose SentDomain matches (case-insensitive)."""
+    domain = (domain or "").strip().lower()
+    if not domain:
+        return 0
+    with _lock:
+        df = _read_df()
+        today = date.today().isoformat()
+        mask = (
+            df["EmailSentAt"].str.startswith(today)
+            & (df["SentDomain"].str.lower() == domain)
+        )
+        return int(mask.sum())
 
 
 def get_lead(email: str) -> Optional[dict]:

@@ -377,11 +377,12 @@ async def send_pending(key: str = ""):
             delivered = False
             for attempt in range(1, max_retries + 1):
                 try:
-                    msg_id = email_sender.send_one(first, email)
-                    store.record_email_sent(email)
+                    sender = email_sender.pick_from_email()
+                    msg_id = email_sender.send_one(first, email, from_email=sender)
+                    store.record_email_sent(email, sent_domain=sender)
                     sent += 1
                     delivered = True
-                    logger.info("sent -> %s (id: %s)", email, msg_id)
+                    logger.info("sent -> %s from %s (id: %s)", email, sender, msg_id)
                     break
                 except email_sender.RecipientRefusedError:
                     logger.warning("recipient refused: %s", email)
@@ -432,6 +433,12 @@ async def status(key: str = ""):
             "replied": counts.get("Replied", 0),
             "link_sent": counts.get("LinkSent", 0),
             "followups": counts.get("Replied", 0) + counts.get("LinkSent", 0),
+            "warmup_domain_2": (
+                store.count_sent_today_by_domain(email_sender.FROM_EMAIL_2)
+                if email_sender.FROM_EMAIL_2
+                else 0
+            ),
+            "warmup_cap_2": email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0,
             "qualified": counts.get("Qualified", 0),
             "booked": counts.get("Booked", 0),
             "dnc": counts.get("DNC", 0) + counts.get("Stopped", 0),

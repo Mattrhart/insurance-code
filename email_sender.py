@@ -22,8 +22,11 @@ RESEND_API_URL = "https://api.resend.com/emails"
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 
 FROM_EMAIL = os.environ.get("FROM_EMAIL")
+FROM_EMAIL_2 = os.environ.get("FROM_EMAIL_2", "").strip()
 FROM_NAME = os.environ.get("FROM_NAME", "")
 REPLY_TO = os.environ.get("REPLY_TO", FROM_EMAIL)
+# Soft warmup cap for domain #2 (trademediacontracting.com). 0 disables.
+WARMUP_DAILY_CAP_2 = int(os.environ.get("WARMUP_DAILY_CAP_2", "5"))
 
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "")
 COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")
@@ -62,10 +65,23 @@ def missing_config() -> list[str]:
     ]
 
 
-def _from_header() -> str:
+def _from_header(from_email: str | None = None) -> str:
+    addr = (from_email or FROM_EMAIL or "").strip()
     if FROM_NAME:
-        return f"{FROM_NAME} <{FROM_EMAIL}>"
-    return FROM_EMAIL
+        return f"{FROM_NAME} <{addr}>"
+    return addr
+
+
+def pick_from_email() -> str:
+    """
+    Prefer FROM_EMAIL_2 while under WARMUP_DAILY_CAP_2 for today.
+    Falls back to primary FROM_EMAIL.
+    """
+    if FROM_EMAIL_2 and WARMUP_DAILY_CAP_2 > 0:
+        used = store.count_sent_today_by_domain(FROM_EMAIL_2)
+        if used < WARMUP_DAILY_CAP_2:
+            return FROM_EMAIL_2
+    return FROM_EMAIL or ""
 
 
 def unsub_url(email: str) -> str:
@@ -113,10 +129,11 @@ def render_calendly_text(first_name: str) -> str:
     )
 
 
-def build_payload(first_name: str, to_email: str) -> dict:
+def build_payload(first_name: str, to_email: str, from_email: str | None = None) -> dict:
     link = unsub_url(to_email)
+    sender = (from_email or FROM_EMAIL or "").strip()
     payload: dict = {
-        "from": _from_header(),
+        "from": _from_header(sender),
         "to": [to_email],
         "subject": SUBJECT,
         "text": render_plain_text(first_name, to_email),
@@ -130,13 +147,15 @@ def build_payload(first_name: str, to_email: str) -> dict:
     return payload
 
 
-def send_one(first_name: str, to_email: str) -> str:
+def send_one(first_name: str, to_email: str, from_email: str | None = None) -> str:
     """
     POST a plain-text email to Resend. Returns the Resend message id.
     Raises SendError or RecipientRefusedError on failure.
     """
     if not configured():
         raise SendError(f"missing config: {', '.join(missing_config())}")
+
+    sender = (from_email or pick_from_email() or FROM_EMAIL or "").strip()
 
     try:
         resp = requests.post(
@@ -145,7 +164,7 @@ def send_one(first_name: str, to_email: str) -> str:
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
             },
-            json=build_payload(first_name, to_email),
+            json=build_payload(first_name, to_email, from_email=sender),
             timeout=30,
         )
     except requests.RequestException as exc:
