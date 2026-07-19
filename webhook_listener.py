@@ -502,10 +502,15 @@ async def import_leads(key: str = "", file: UploadFile = File(...)):
 # Seed / test send — force Email 1 to a specific address (bypasses Pending queue)
 # ----------------------------------------------------------------------------
 @app.post("/seed")
-async def seed_send(key: str = "", email: str = "", first_name: str = "Matthew"):
+async def seed_send(
+    key: str = "",
+    email: str = "",
+    first_name: str = "Matthew",
+    domain: str = "contracting",
+):
     """
     Send one Email 1 to a specific inbox for warmup / reply testing.
-    Prefers FROM_EMAIL_2 when set so seeds exercise the new domain.
+    domain=contracting (default) → FROM_EMAIL_2; domain=consulting → FROM_EMAIL.
     Gated by INBOUND_SECRET.
     """
     if not INBOUND_SECRET or not hmac.compare_digest(key, INBOUND_SECRET):
@@ -521,7 +526,11 @@ async def seed_send(key: str = "", email: str = "", first_name: str = "Matthew")
         return JSONResponse({"error": f"missing config: {', '.join(missing)}"}, status_code=503)
 
     store.add_lead(first_name, email, "", source="seed")
-    sender = email_sender.FROM_EMAIL_2 or email_sender.pick_from_email() or email_sender.FROM_EMAIL
+    want = (domain or "contracting").strip().lower()
+    if want in {"consulting", "primary", "1", "main"}:
+        sender = email_sender.FROM_EMAIL
+    else:
+        sender = email_sender.FROM_EMAIL_2 or email_sender.FROM_EMAIL
     try:
         msg_id = email_sender.send_one(first_name, email, from_email=sender)
         store.record_email_sent(email, sent_domain=sender)
