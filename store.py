@@ -199,16 +199,32 @@ def add_lead(
 # Reads
 # ----------------------------------------------------------------------------
 def count_sent_today() -> int:
-    """Total EmailSent rows with EmailSentAt today (any domain)."""
+    """Unique emails with EmailSentAt today (any domain)."""
     with _lock:
         df = _read_df()
         today = date.today().isoformat()
-        return int(df["EmailSentAt"].str.startswith(today).sum())
+        mask = df["EmailSentAt"].str.startswith(today)
+        return int(df.loc[mask, "Email"].str.lower().nunique())
+
+
+def count_sent_today_by_domain(domain: str) -> int:
+    """Unique emails sent today whose SentDomain matches (case-insensitive)."""
+    domain = (domain or "").strip().lower()
+    if not domain:
+        return 0
+    with _lock:
+        df = _read_df()
+        today = date.today().isoformat()
+        mask = (
+            df["EmailSentAt"].str.startswith(today)
+            & (df["SentDomain"].str.lower() == domain)
+        )
+        return int(df.loc[mask, "Email"].str.lower().nunique())
 
 
 def count_sent_today_primary(exclude_domain: str = "") -> int:
     """
-    Count today's sends that count toward the primary (consulting) daily cap.
+    Unique emails sent today that count toward the primary (consulting) daily cap.
     Excludes rows whose SentDomain matches the warmup domain (domain #2).
     Blank/legacy SentDomain counts as primary.
     """
@@ -217,11 +233,10 @@ def count_sent_today_primary(exclude_domain: str = "") -> int:
         df = _read_df()
         today = date.today().isoformat()
         today_mask = df["EmailSentAt"].str.startswith(today)
-        if not exclude:
-            return int(today_mask.sum())
-        sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
-        primary_mask = today_mask & (sent_domain != exclude)
-        return int(primary_mask.sum())
+        if exclude:
+            sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
+            today_mask = today_mask & (sent_domain != exclude)
+        return int(df.loc[today_mask, "Email"].str.lower().nunique())
 
 
 def fetch_pending(
@@ -237,20 +252,23 @@ def fetch_pending(
       - daily_cap  → consulting / primary (everything except warmup_domain)
       - warmup_cap → FROM_EMAIL_2 only
 
+    Caps count UNIQUE emails (duplicate ledger rows don't inflate the day).
     Total room today = primary remaining + warmup remaining.
     Returns (pending_df, sent_today_total, primary_sent, warmup_sent).
     """
     with _lock:
         df = _read_df()
         today = date.today().isoformat()
-        sent_today = int(df["EmailSentAt"].str.startswith(today).sum())
+        today_mask = df["EmailSentAt"].str.startswith(today)
+        sent_today = int(df.loc[today_mask, "Email"].str.lower().nunique())
 
         warmup_domain = (warmup_domain or "").strip().lower()
         if warmup_domain and warmup_cap > 0:
             sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
-            today_mask = df["EmailSentAt"].str.startswith(today)
-            warmup_sent = int((today_mask & (sent_domain == warmup_domain)).sum())
-            primary_sent = int((today_mask & (sent_domain != warmup_domain)).sum())
+            warmup_mask = today_mask & (sent_domain == warmup_domain)
+            primary_mask = today_mask & (sent_domain != warmup_domain)
+            warmup_sent = int(df.loc[warmup_mask, "Email"].str.lower().nunique())
+            primary_sent = int(df.loc[primary_mask, "Email"].str.lower().nunique())
             remaining = max(0, daily_cap - primary_sent) + max(0, warmup_cap - warmup_sent)
         else:
             primary_sent = sent_today
@@ -322,21 +340,6 @@ def record_email_sent(email: str, sent_domain: str = "") -> bool:
             df.loc[mask, "SentDomain"] = sent_domain.strip().lower()
         _atomic_write(df)
         return True
-
-
-def count_sent_today_by_domain(domain: str) -> int:
-    """Count EmailSent rows today whose SentDomain matches (case-insensitive)."""
-    domain = (domain or "").strip().lower()
-    if not domain:
-        return 0
-    with _lock:
-        df = _read_df()
-        today = date.today().isoformat()
-        mask = (
-            df["EmailSentAt"].str.startswith(today)
-            & (df["SentDomain"].str.lower() == domain)
-        )
-        return int(mask.sum())
 
 
 def get_lead(email: str) -> Optional[dict]:
