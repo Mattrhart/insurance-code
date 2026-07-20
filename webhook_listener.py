@@ -350,21 +350,47 @@ async def send_pending(key: str = ""):
         return JSONResponse({"error": f"missing config: {', '.join(missing)}"}, status_code=503)
 
     max_per_run = int(os.getenv("MAX_PER_RUN", "15"))
-    daily_cap = int(os.getenv("DAILY_CAP", "200"))
+    # Primary consulting cap — separate from domain #2 warmup.
+    daily_cap = int(os.getenv("DAILY_CAP", "75"))
+    warmup_cap = email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0
+    warmup_domain = email_sender.FROM_EMAIL_2 or ""
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
     min_interval = 3600.0 / max(1, int(os.getenv("EMAILS_PER_HOUR", "60")))
 
     try:
-        pending, sent_today = store.fetch_pending(limit=max_per_run, daily_cap=daily_cap)
+        pending, sent_today, primary_sent, warmup_sent = store.fetch_pending(
+            limit=max_per_run,
+            daily_cap=daily_cap,
+            warmup_cap=warmup_cap,
+            warmup_domain=warmup_domain,
+        )
     except Exception as exc:
         logger.exception("failed to read pending leads")
         return JSONResponse({"error": str(exc)}, status_code=500)
 
     if pending.empty:
-        return {"sent": 0, "errors": 0, "message": "no pending leads", "sent_today": sent_today}
+        primary_remaining = max(0, daily_cap - primary_sent)
+        warmup_remaining = max(0, warmup_cap - warmup_sent)
+        msg = (
+            "daily caps reached"
+            if primary_remaining == 0 and warmup_remaining == 0
+            else "no pending leads"
+        )
+        return {
+            "sent": 0,
+            "errors": 0,
+            "message": msg,
+            "sent_today": sent_today,
+            "consulting_sent": primary_sent,
+            "consulting_cap": daily_cap,
+            "contracting_sent": warmup_sent,
+            "contracting_cap": warmup_cap,
+        }
 
     sent = 0
     errors = 0
+    sent_consulting = 0
+    sent_contracting = 0
 
     try:
         pending_rows = list(pending.iterrows())
@@ -381,6 +407,10 @@ async def send_pending(key: str = ""):
                     msg_id = email_sender.send_one(first, email, from_email=sender)
                     store.record_email_sent(email, sent_domain=sender)
                     sent += 1
+                    if warmup_domain and sender.strip().lower() == warmup_domain.strip().lower():
+                        sent_contracting += 1
+                    else:
+                        sent_consulting += 1
                     delivered = True
                     logger.info("sent -> %s from %s (id: %s)", email, sender, msg_id)
                     break
@@ -411,6 +441,10 @@ async def send_pending(key: str = ""):
         "errors": errors,
         "batch_size": len(pending),
         "sent_today": sent_today + sent,
+        "consulting_sent": primary_sent + sent_consulting,
+        "consulting_cap": daily_cap,
+        "contracting_sent": warmup_sent + sent_contracting,
+        "contracting_cap": warmup_cap,
     }
 
 
@@ -433,6 +467,11 @@ async def status(key: str = ""):
             "replied": counts.get("Replied", 0),
             "link_sent": counts.get("LinkSent", 0),
             "followups": counts.get("Replied", 0) + counts.get("LinkSent", 0),
+            "sent_today": store.count_sent_today(),
+            "consulting_sent": store.count_sent_today_primary(
+                email_sender.FROM_EMAIL_2 or ""
+            ),
+            "consulting_cap": int(os.getenv("DAILY_CAP", "75")),
             "warmup_domain_2": (
                 store.count_sent_today_by_domain(email_sender.FROM_EMAIL_2)
                 if email_sender.FROM_EMAIL_2

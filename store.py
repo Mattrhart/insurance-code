@@ -198,17 +198,65 @@ def add_lead(
 # ----------------------------------------------------------------------------
 # Reads
 # ----------------------------------------------------------------------------
-def fetch_pending(limit: int, daily_cap: int) -> tuple[pd.DataFrame, int]:
+def count_sent_today() -> int:
+    """Total EmailSent rows with EmailSentAt today (any domain)."""
+    with _lock:
+        df = _read_df()
+        today = date.today().isoformat()
+        return int(df["EmailSentAt"].str.startswith(today).sum())
+
+
+def count_sent_today_primary(exclude_domain: str = "") -> int:
     """
-    Return up to `limit` Pending leads, capped so today's total sends never
-    exceed `daily_cap`. Counting today's sends straight from the CSV means the
-    cap holds even across multiple sequencer runs in the same day.
+    Count today's sends that count toward the primary (consulting) daily cap.
+    Excludes rows whose SentDomain matches the warmup domain (domain #2).
+    Blank/legacy SentDomain counts as primary.
+    """
+    exclude = (exclude_domain or "").strip().lower()
+    with _lock:
+        df = _read_df()
+        today = date.today().isoformat()
+        today_mask = df["EmailSentAt"].str.startswith(today)
+        if not exclude:
+            return int(today_mask.sum())
+        sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
+        primary_mask = today_mask & (sent_domain != exclude)
+        return int(primary_mask.sum())
+
+
+def fetch_pending(
+    limit: int,
+    daily_cap: int,
+    warmup_cap: int = 0,
+    warmup_domain: str = "",
+) -> tuple[pd.DataFrame, int, int, int]:
+    """
+    Return up to `limit` Pending leads.
+
+    Primary domain and warmup domain have separate daily caps:
+      - daily_cap  → consulting / primary (everything except warmup_domain)
+      - warmup_cap → FROM_EMAIL_2 only
+
+    Total room today = primary remaining + warmup remaining.
+    Returns (pending_df, sent_today_total, primary_sent, warmup_sent).
     """
     with _lock:
         df = _read_df()
         today = date.today().isoformat()
         sent_today = int(df["EmailSentAt"].str.startswith(today).sum())
-        remaining = max(0, daily_cap - sent_today)
+
+        warmup_domain = (warmup_domain or "").strip().lower()
+        if warmup_domain and warmup_cap > 0:
+            sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
+            today_mask = df["EmailSentAt"].str.startswith(today)
+            warmup_sent = int((today_mask & (sent_domain == warmup_domain)).sum())
+            primary_sent = int((today_mask & (sent_domain != warmup_domain)).sum())
+            remaining = max(0, daily_cap - primary_sent) + max(0, warmup_cap - warmup_sent)
+        else:
+            primary_sent = sent_today
+            warmup_sent = 0
+            remaining = max(0, daily_cap - sent_today)
+
         n = min(limit, remaining)
         pending = (
             df[df["Status"] == "Pending"]
@@ -216,7 +264,7 @@ def fetch_pending(limit: int, daily_cap: int) -> tuple[pd.DataFrame, int]:
             .head(n)
             .copy()
         )
-        return pending, sent_today
+        return pending, sent_today, primary_sent, warmup_sent
 
 
 FOLLOWUP_STATUSES = {"Replied", "LinkSent"}
