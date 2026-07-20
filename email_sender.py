@@ -34,7 +34,9 @@ COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")
 UNSUB_BASE_URL = os.environ.get(
     "UNSUB_BASE_URL", "https://your-listener.example.com/unsubscribe"
 )
-SUBJECT = os.environ.get("EMAIL_SUBJECT", "union members expecting a call")
+SUBJECT = os.environ.get(
+    "EMAIL_SUBJECT", "Warm union leads + a team that actually shows up"
+)
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
 # Overview / recruiting video shown in Email 2 above the Calendly link.
 RECRUITING_VIDEO_URL = os.environ.get(
