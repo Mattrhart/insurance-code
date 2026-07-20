@@ -36,6 +36,10 @@ UNSUB_BASE_URL = os.environ.get(
 )
 SUBJECT = os.environ.get("EMAIL_SUBJECT", "union members expecting a call")
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
+# Overview / recruiting video shown in Email 2 above the Calendly link.
+RECRUITING_VIDEO_URL = os.environ.get(
+    "RECRUITING_VIDEO_URL", "https://youtu.be/w7cjWBzbGP0"
+)
 EMAIL2_SUBJECT = os.environ.get("EMAIL2_SUBJECT", "calendar for the union walkthrough")
 RESEND_RECEIVING_URL = "https://api.resend.com/emails/receiving"
 
@@ -120,11 +124,18 @@ def render_calendly_text(first_name: str) -> str:
     name = first_name.strip()
     greeting = f"Hi {name},\n\n" if name else ""
     signoff = FROM_NAME or "Matt"
+    video = (RECRUITING_VIDEO_URL or "").strip()
+    video_block = (
+        f"Watch this short overview first:\n{video}\n\n" if video else ""
+    )
     return (
         f"{greeting}"
         "Appreciate the reply.\n\n"
+        f"{video_block}"
+        "We are looking for agents under 35. If you are older, you need to be "
+        "extremely present and coachable, and constantly asking for the next step.\n\n"
         "Grab a 15 minute slot here. I will walk you through the union lead flow, "
-        f"the script, the community, and what a typical week of dials looks like:\n\n"
+        "the script, the community, and what a typical week of dials looks like:\n\n"
         f"{CALENDLY_LINK}\n\n"
         f"Talk soon,\n{signoff}\n"
     )
