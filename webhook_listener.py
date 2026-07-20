@@ -478,6 +478,8 @@ async def status(key: str = ""):
                 else 0
             ),
             "warmup_cap_2": email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0,
+            "send_day_start": store.send_day_window()[0].isoformat(),
+            "send_day_reset": f"{store.SEND_DAY_RESET_HOUR:02d}:00 {store.SEND_DAY_TZ}",
             "qualified": counts.get("Qualified", 0),
             "booked": counts.get("Booked", 0),
             "dnc": counts.get("DNC", 0) + counts.get("Stopped", 0),

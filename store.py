@@ -29,9 +29,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from load_env import load_layered
@@ -43,6 +44,10 @@ load_layered()
 CSV_PATH = Path(os.getenv("LEADS_CSV", SCRIPT_DIR / "data" / "rookie_list.csv"))
 LOCK_PATH = CSV_PATH.with_suffix(CSV_PATH.suffix + ".lock")
 LOCK_TIMEOUT = int(os.getenv("LOCK_TIMEOUT_SECONDS", "30"))
+
+# Daily send caps reset at this Eastern local time (default 8:00 AM America/New_York).
+SEND_DAY_TZ = ZoneInfo(os.getenv("SEND_DAY_TZ", "America/New_York"))
+SEND_DAY_RESET_HOUR = int(os.getenv("SEND_DAY_RESET_HOUR", "8"))
 
 # Used to sign unsubscribe links so recipients can't unsubscribe each other
 # or enumerate your list. Set a long random value in .env.
@@ -82,6 +87,53 @@ _lock = FileLock(str(LOCK_PATH), timeout=LOCK_TIMEOUT)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def send_day_window(now: datetime | None = None) -> tuple[datetime, datetime]:
+    """
+    Current send-day window [start, end) in Eastern time.
+    Resets every day at SEND_DAY_RESET_HOUR (default 8:00 AM ET).
+    """
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    local = now.astimezone(SEND_DAY_TZ)
+    start = local.replace(
+        hour=SEND_DAY_RESET_HOUR, minute=0, second=0, microsecond=0
+    )
+    if local < start:
+        start -= timedelta(days=1)
+    end = start + timedelta(days=1)
+    return start, end
+
+
+def _parse_sent_at(value: object) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _mask_in_current_send_day(df: pd.DataFrame) -> pd.Series:
+    """Boolean mask: EmailSentAt falls inside the current 8AM-Eastern send day."""
+    start, end = send_day_window()
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+
+    def _in_window(value: object) -> bool:
+        dt = _parse_sent_at(value)
+        if not dt:
+            return False
+        utc = dt.astimezone(timezone.utc)
+        return start_utc <= utc < end_utc
+
+    return df["EmailSentAt"].map(_in_window)
 
 
 def _read_df() -> pd.DataFrame:
@@ -199,40 +251,34 @@ def add_lead(
 # Reads
 # ----------------------------------------------------------------------------
 def count_sent_today() -> int:
-    """Unique emails with EmailSentAt today (any domain)."""
+    """Unique emails sent in the current 8AM-Eastern send day (any domain)."""
     with _lock:
         df = _read_df()
-        today = date.today().isoformat()
-        mask = df["EmailSentAt"].str.startswith(today)
+        mask = _mask_in_current_send_day(df)
         return int(df.loc[mask, "Email"].str.lower().nunique())
 
 
 def count_sent_today_by_domain(domain: str) -> int:
-    """Unique emails sent today whose SentDomain matches (case-insensitive)."""
+    """Unique emails sent this send-day whose SentDomain matches."""
     domain = (domain or "").strip().lower()
     if not domain:
         return 0
     with _lock:
         df = _read_df()
-        today = date.today().isoformat()
-        mask = (
-            df["EmailSentAt"].str.startswith(today)
-            & (df["SentDomain"].str.lower() == domain)
-        )
+        mask = _mask_in_current_send_day(df) & (df["SentDomain"].str.lower() == domain)
         return int(df.loc[mask, "Email"].str.lower().nunique())
 
 
 def count_sent_today_primary(exclude_domain: str = "") -> int:
     """
-    Unique emails sent today that count toward the primary (consulting) daily cap.
+    Unique emails this send-day that count toward the primary (consulting) cap.
     Excludes rows whose SentDomain matches the warmup domain (domain #2).
     Blank/legacy SentDomain counts as primary.
     """
     exclude = (exclude_domain or "").strip().lower()
     with _lock:
         df = _read_df()
-        today = date.today().isoformat()
-        today_mask = df["EmailSentAt"].str.startswith(today)
+        today_mask = _mask_in_current_send_day(df)
         if exclude:
             sent_domain = df["SentDomain"].fillna("").astype(str).str.strip().str.lower()
             today_mask = today_mask & (sent_domain != exclude)
@@ -252,14 +298,12 @@ def fetch_pending(
       - daily_cap  → consulting / primary (everything except warmup_domain)
       - warmup_cap → FROM_EMAIL_2 only
 
-    Caps count UNIQUE emails (duplicate ledger rows don't inflate the day).
-    Total room today = primary remaining + warmup remaining.
+    Caps count UNIQUE emails in the current send day (resets 8AM Eastern).
     Returns (pending_df, sent_today_total, primary_sent, warmup_sent).
     """
     with _lock:
         df = _read_df()
-        today = date.today().isoformat()
-        today_mask = df["EmailSentAt"].str.startswith(today)
+        today_mask = _mask_in_current_send_day(df)
         sent_today = int(df.loc[today_mask, "Email"].str.lower().nunique())
 
         warmup_domain = (warmup_domain or "").strip().lower()
