@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "15"))
-DAILY_CAP = int(os.getenv("DAILY_CAP", "200"))
+DAILY_CAP = int(os.getenv("DAILY_CAP", "75"))
 EMAILS_PER_HOUR = int(os.getenv("EMAILS_PER_HOUR", "60"))
 MIN_INTERVAL = 3600.0 / max(1, EMAILS_PER_HOUR)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
@@ -51,14 +51,26 @@ def require_config() -> None:
 def main() -> None:
     require_config()
 
-    pending, sent_today = store.fetch_pending(limit=MAX_PER_RUN, daily_cap=DAILY_CAP)
+    warmup_cap = email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0
+    warmup_domain = email_sender.FROM_EMAIL_2 or ""
+    pending, sent_today, primary_sent, warmup_sent = store.fetch_pending(
+        limit=MAX_PER_RUN,
+        daily_cap=DAILY_CAP,
+        warmup_cap=warmup_cap,
+        warmup_domain=warmup_domain,
+    )
     if pending.empty:
-        print(f"No sendable Pending leads (already sent {sent_today} today, cap {DAILY_CAP}).")
+        print(
+            f"No sendable Pending leads "
+            f"(consulting {primary_sent}/{DAILY_CAP}, "
+            f"contracting {warmup_sent}/{warmup_cap}, total sent today {sent_today})."
+        )
         return
 
     print(
         f"Sending {len(pending)} emails via Resend "
-        f"(sent {sent_today} earlier today, pacing ~{EMAILS_PER_HOUR}/hr)."
+        f"(consulting {primary_sent}/{DAILY_CAP}, contracting {warmup_sent}/{warmup_cap}, "
+        f"pacing ~{EMAILS_PER_HOUR}/hr)."
     )
 
     sent = 0
@@ -105,6 +117,8 @@ def main() -> None:
     print(f"{'='*44}")
     print(f"  Sent this run      : {sent}")
     print(f"  Sent today (total) : {sent_today + sent}")
+    print(f"  Consulting today   : {primary_sent} / {DAILY_CAP}")
+    print(f"  Contracting today  : {warmup_sent} / {warmup_cap}")
     print(f"  Errors this run    : {len(pending) - sent}")
     print(f"  Pending in ledger  : {remaining}")
     print(f"  Non-pending total  : {sent_total}")
