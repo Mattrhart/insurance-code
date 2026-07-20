@@ -471,7 +471,7 @@ async def status(key: str = ""):
             "consulting_sent": store.count_sent_today_primary(
                 email_sender.FROM_EMAIL_2 or ""
             ),
-            "consulting_cap": int(os.getenv("DAILY_CAP", "75")),
+            "consulting_cap": int(os.getenv("DAILY_CAP", "90")),
             "warmup_domain_2": (
                 store.count_sent_today_by_domain(email_sender.FROM_EMAIL_2)
                 if email_sender.FROM_EMAIL_2
