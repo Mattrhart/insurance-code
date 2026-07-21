@@ -84,12 +84,10 @@ def main() -> None:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 sender = email_sender.pick_from_email()
-                msg_id, variant = email_sender.send_one(first, email, from_email=sender)
-                store.record_email_sent(
-                    email, sent_domain=sender, email_variant=variant
-                )
+                msg_id = email_sender.send_one(first, email, from_email=sender)
+                store.record_email_sent(email, sent_domain=sender)
                 sent += 1
-                print(f"  sent -> {email} from {sender} variant={variant} (id: {msg_id})")
+                print(f"  sent -> {email} from {sender} (id: {msg_id})")
                 break
             except email_sender.RecipientRefusedError:
                 logger.warning("recipient refused: %s", email)

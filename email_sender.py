@@ -8,7 +8,6 @@ No HTML, no tracking pixels — plain text only for primary-inbox deliverability
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 from urllib.parse import quote
@@ -38,17 +37,6 @@ UNSUB_BASE_URL = os.environ.get(
 SUBJECT = os.environ.get(
     "EMAIL_SUBJECT", "Warm union leads + a team that actually shows up"
 )
-# Young-crew A/B (50/50 by email hash). Set EMAIL1_AB=0 to force control only.
-EMAIL1_AB = os.environ.get("EMAIL1_AB", "1").strip().lower() not in {
-    "0",
-    "false",
-    "off",
-    "no",
-}
-YOUNG_CREW_SUBJECT = os.environ.get(
-    "EMAIL_SUBJECT_YOUNG",
-    "licensed and still grinding alone?",
-)
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
 # Overview / recruiting video shown in Email 2 above the Calendly link.
 RECRUITING_VIDEO_URL = os.environ.get(
@@ -56,9 +44,6 @@ RECRUITING_VIDEO_URL = os.environ.get(
 )
 EMAIL2_SUBJECT = os.environ.get("EMAIL2_SUBJECT", "calendar for the union walkthrough")
 RESEND_RECEIVING_URL = "https://api.resend.com/emails/receiving"
-
-VARIANT_CONTROL = "control"
-VARIANT_YOUNG_CREW = "young_crew"
 
 
 class SendError(Exception):
@@ -106,54 +91,15 @@ def pick_from_email() -> str:
     return FROM_EMAIL or ""
 
 
-def pick_email1_variant(email: str) -> str:
-    """Stable 50/50 A/B by email hash. Same address always gets the same variant."""
-    if not EMAIL1_AB:
-        return VARIANT_CONTROL
-    digest = hashlib.md5(email.strip().lower().encode("utf-8")).hexdigest()
-    return VARIANT_YOUNG_CREW if int(digest, 16) % 2 else VARIANT_CONTROL
-
-
-def subject_for_variant(variant: str) -> str:
-    if variant == VARIANT_YOUNG_CREW:
-        return YOUNG_CREW_SUBJECT
-    return SUBJECT
-
-
 def unsub_url(email: str) -> str:
     token = store.make_unsub_token(email)
     return f"{UNSUB_BASE_URL}?lead={quote(email)}&token={token}"
 
 
-def render_plain_text(
-    first_name: str,
-    email: str,
-    variant: str = VARIANT_CONTROL,
-) -> str:
+def render_plain_text(first_name: str, email: str) -> str:
     name = first_name.strip() or "there"
     link = unsub_url(email)
     signoff = FROM_NAME or "Matt"
-    if variant == VARIANT_YOUNG_CREW:
-        return (
-            f"Hey {name},\n\n"
-            "If you are licensed and still grinding alone, this is worth 30 seconds.\n\n"
-            "We are partnered with labor unions in Florida. Their members get a no "
-            "cost benefit through the union, and they are told to expect a licensed "
-            "agent to walk them through it.\n\n"
-            "These are not cold leads. They know the call is coming. You run a "
-            "word for word script (phone and Zoom), walk them through what they already "
-            "have, and present the permanent coverage option. Referrals come built in.\n\n"
-            "The producers moving fastest on our roster are young, coachable, and in "
-            "the chat every morning. Gym clips, a bible verse, a page from a book. "
-            "Pure pace. Nobody coasting.\n\n"
-            "I am opening a few producer slots on our FL roster this week. If you want "
-            "the script, the leads, and a crew that actually shows up, reply yes and I "
-            "will send my calendar link.\n\n"
-            f"Best,\n{signoff}\n\n"
-            f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
-            "If this is not for you, no worries. Unsubscribe here and I will take you off:\n"
-            f"{link}\n"
-        )
     return (
         f"Hey {name},\n\n"
         "Quick one. We are partnered with labor unions in Florida. Their members "
@@ -197,19 +143,14 @@ def render_calendly_text(first_name: str) -> str:
     )
 
 
-def build_payload(
-    first_name: str,
-    to_email: str,
-    from_email: str | None = None,
-    variant: str = VARIANT_CONTROL,
-) -> dict:
+def build_payload(first_name: str, to_email: str, from_email: str | None = None) -> dict:
     link = unsub_url(to_email)
     sender = (from_email or FROM_EMAIL or "").strip()
     payload: dict = {
         "from": _from_header(sender),
         "to": [to_email],
-        "subject": subject_for_variant(variant),
-        "text": render_plain_text(first_name, to_email, variant=variant),
+        "subject": SUBJECT,
+        "text": render_plain_text(first_name, to_email),
         "headers": {
             "List-Unsubscribe": f"<{link}>",
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -220,21 +161,15 @@ def build_payload(
     return payload
 
 
-def send_one(
-    first_name: str,
-    to_email: str,
-    from_email: str | None = None,
-    variant: str | None = None,
-) -> tuple[str, str]:
+def send_one(first_name: str, to_email: str, from_email: str | None = None) -> str:
     """
-    POST a plain-text email to Resend.
-    Returns (Resend message id, email1 variant).
+    POST a plain-text email to Resend. Returns the Resend message id.
+    Raises SendError or RecipientRefusedError on failure.
     """
     if not configured():
         raise SendError(f"missing config: {', '.join(missing_config())}")
 
     sender = (from_email or pick_from_email() or FROM_EMAIL or "").strip()
-    chosen = (variant or pick_email1_variant(to_email)).strip().lower() or VARIANT_CONTROL
 
     try:
         resp = requests.post(
@@ -243,9 +178,7 @@ def send_one(
                 "Authorization": f"Bearer {RESEND_API_KEY}",
                 "Content-Type": "application/json",
             },
-            json=build_payload(
-                first_name, to_email, from_email=sender, variant=chosen
-            ),
+            json=build_payload(first_name, to_email, from_email=sender),
             timeout=30,
         )
     except requests.RequestException as exc:
@@ -253,7 +186,7 @@ def send_one(
         raise SendError(f"network_error: {exc}") from exc
 
     if resp.status_code == 200:
-        return resp.json().get("id", ""), chosen
+        return resp.json().get("id", "")
 
     detail = resp.text
     try:
@@ -336,8 +269,8 @@ def send_calendly_link(to_email: str, first_name: str = "") -> str:
 def send_one_safe(first_name: str, to_email: str) -> tuple[bool, str]:
     """Send a single plain-text email. Returns (success, note). Never raises."""
     try:
-        msg_id, variant = send_one(first_name, to_email)
-        return True, f"{msg_id or 'sent'}:{variant}"
+        msg_id = send_one(first_name, to_email)
+        return True, msg_id or "sent"
     except RecipientRefusedError as exc:
         logger.warning("recipient refused %s: %s", to_email, exc)
         return False, "recipient_refused"
