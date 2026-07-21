@@ -351,7 +351,7 @@ async def send_pending(key: str = ""):
 
     max_per_run = int(os.getenv("MAX_PER_RUN", "15"))
     # Primary consulting cap — separate from domain #2 warmup.
-    daily_cap = int(os.getenv("DAILY_CAP", "75"))
+    daily_cap = int(os.getenv("DAILY_CAP", "90"))
     warmup_cap = email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0
     warmup_domain = email_sender.FROM_EMAIL_2 or ""
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
@@ -404,15 +404,25 @@ async def send_pending(key: str = ""):
             for attempt in range(1, max_retries + 1):
                 try:
                     sender = email_sender.pick_from_email()
-                    msg_id = email_sender.send_one(first, email, from_email=sender)
-                    store.record_email_sent(email, sent_domain=sender)
+                    msg_id, variant = email_sender.send_one(
+                        first, email, from_email=sender
+                    )
+                    store.record_email_sent(
+                        email, sent_domain=sender, email_variant=variant
+                    )
                     sent += 1
                     if warmup_domain and sender.strip().lower() == warmup_domain.strip().lower():
                         sent_contracting += 1
                     else:
                         sent_consulting += 1
                     delivered = True
-                    logger.info("sent -> %s from %s (id: %s)", email, sender, msg_id)
+                    logger.info(
+                        "sent -> %s from %s variant=%s (id: %s)",
+                        email,
+                        sender,
+                        variant,
+                        msg_id,
+                    )
                     break
                 except email_sender.RecipientRefusedError:
                     logger.warning("recipient refused: %s", email)
@@ -478,6 +488,8 @@ async def status(key: str = ""):
                 else 0
             ),
             "warmup_cap_2": email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0,
+            "email1_ab": email_sender.EMAIL1_AB,
+            "email1_variants_today": store.count_variants_sent_today(),
             "send_day_start": store.send_day_window()[0].isoformat(),
             "send_day_reset": f"{store.SEND_DAY_RESET_HOUR:02d}:00 {store.SEND_DAY_TZ}",
             "qualified": counts.get("Qualified", 0),
@@ -573,10 +585,22 @@ async def seed_send(
     else:
         sender = email_sender.FROM_EMAIL_2 or email_sender.FROM_EMAIL
     try:
-        msg_id = email_sender.send_one(first_name, email, from_email=sender)
-        store.record_email_sent(email, sent_domain=sender)
-        logger.info("seed sent -> %s from %s (id: %s)", email, sender, msg_id)
-        return {"sent": True, "email": email, "from": sender, "id": msg_id}
+        msg_id, variant = email_sender.send_one(first_name, email, from_email=sender)
+        store.record_email_sent(email, sent_domain=sender, email_variant=variant)
+        logger.info(
+            "seed sent -> %s from %s variant=%s (id: %s)",
+            email,
+            sender,
+            variant,
+            msg_id,
+        )
+        return {
+            "sent": True,
+            "email": email,
+            "from": sender,
+            "variant": variant,
+            "id": msg_id,
+        }
     except email_sender.RecipientRefusedError as exc:
         store.update_by_email(email, "DNC", "recipient_refused")
         return JSONResponse({"sent": False, "error": str(exc)}, status_code=422)
