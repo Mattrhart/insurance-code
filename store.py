@@ -61,7 +61,6 @@ BASE_COLUMNS = [
     "Source",
     "Status",
     "SentDomain",
-    "EmailVariant",
     "EmailSentAt",
     "StatusUpdatedAt",
     "LastEvent",
@@ -371,11 +370,7 @@ def fetch_by_status(status: str) -> list[dict]:
 # ----------------------------------------------------------------------------
 # Writes — all go through advance_status so the funnel logic stays in one place
 # ----------------------------------------------------------------------------
-def record_email_sent(
-    email: str,
-    sent_domain: str = "",
-    email_variant: str = "",
-) -> bool:
+def record_email_sent(email: str, sent_domain: str = "") -> bool:
     with _lock:
         df = _read_df()
         mask = df["Email"].str.lower() == email.lower()
@@ -387,27 +382,8 @@ def record_email_sent(
         df.loc[mask, "StatusUpdatedAt"] = now
         if sent_domain:
             df.loc[mask, "SentDomain"] = sent_domain.strip().lower()
-        if email_variant:
-            df.loc[mask, "EmailVariant"] = email_variant.strip().lower()
         _atomic_write(df)
         return True
-
-
-def count_variants_sent_today() -> dict[str, int]:
-    """Unique emails sent this send-day, grouped by EmailVariant."""
-    with _lock:
-        df = _read_df()
-        mask = _mask_in_current_send_day(df)
-        if not mask.any():
-            return {}
-        sliced = df.loc[mask, ["Email", "EmailVariant"]].copy()
-        sliced["Email"] = sliced["Email"].str.lower()
-        sliced["EmailVariant"] = (
-            sliced["EmailVariant"].fillna("").astype(str).str.strip().str.lower()
-        )
-        sliced.loc[sliced["EmailVariant"] == "", "EmailVariant"] = "unknown"
-        sliced = sliced.drop_duplicates(subset=["Email"], keep="last")
-        return sliced["EmailVariant"].value_counts().astype(int).to_dict()
 
 
 def get_lead(email: str) -> Optional[dict]:
