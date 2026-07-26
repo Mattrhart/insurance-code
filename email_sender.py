@@ -102,9 +102,10 @@ def render_plain_text(first_name: str, email: str) -> str:
     signoff = FROM_NAME or "Matt"
     return (
         f"Hey {name},\n\n"
-        "I work with a few labor unions in Florida. Their members get a no-cost "
-        "benefit through the union, and they are told a licensed agent will walk "
-        "them through it, so the conversation is expected, not a cold pitch.\n\n"
+        "American Income Life works with about 40,000 unions across the United "
+        "States. Their members get a no-cost benefit through the union, and they "
+        "are told a licensed agent will walk them through it, so the conversation "
+        "is expected, not a cold pitch.\n\n"
         "You follow a simple phone and Zoom script, review what they already have, "
         "and present the permanent coverage option. Referrals usually come with the "
         "territory.\n\n"
