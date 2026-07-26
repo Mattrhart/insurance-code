@@ -27,7 +27,7 @@ FROM_NAME = os.environ.get("FROM_NAME", "")
 REPLY_TO = os.environ.get("REPLY_TO", FROM_EMAIL)
 # Soft warmup cap for domain #2 (trademediacontracting.com). Additive to DAILY_CAP.
 # 0 disables. Does NOT consume the primary consulting daily cap.
-WARMUP_DAILY_CAP_2 = int(os.environ.get("WARMUP_DAILY_CAP_2", "7"))
+WARMUP_DAILY_CAP_2 = int(os.environ.get("WARMUP_DAILY_CAP_2", "10"))
 
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "")
 COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")
@@ -102,19 +102,19 @@ def render_plain_text(first_name: str, email: str) -> str:
     signoff = FROM_NAME or "Matt"
     return (
         f"Hey {name},\n\n"
-        "Quick one. We are partnered with labor unions in Florida. Their members "
-        "get a no cost benefit through the union, and they are told to expect a "
-        "licensed agent to walk them through it.\n\n"
-        "These are not cold leads. They know the call is coming. You run a "
-        "word for word script (phone and Zoom), walk them through what they already "
-        "have, and present the permanent coverage option. Referrals come built in.\n\n"
-        "On top of the lead flow, you join a community that actually shows up. "
-        "Every morning the group chat is on fire. Gym clips, a bible verse, a page "
-        "from a motivational book or audiobook. Everyone hypes each other up. "
-        "Pure discipline.\n\n"
-        "I am opening a few producer slots on our FL roster this week. If you want "
-        "the script, the leads, and the community, reply yes and I will send my "
-        "calendar link.\n\n"
+        "American Income Life works with about 40,000 unions across the United "
+        "States. Their members get a no-cost benefit through the union, and they "
+        "are told a licensed agent will walk them through it, so the conversation "
+        "is expected, not a cold pitch.\n\n"
+        "You follow a simple phone and Zoom script, review what they already have, "
+        "and present the permanent coverage option. Referrals usually come with the "
+        "territory.\n\n"
+        "Alongside the lead flow there is a small producer group that actually "
+        "shows up for each other: morning check-ins, shared standards, people "
+        "trying to get better at the craft.\n\n"
+        "I am filling a few seats on our FL roster and leaning toward younger "
+        "producers who want consistent appointments and a team around them. If that "
+        "sounds useful, reply and I will send a calendar link.\n\n"
         f"Best,\n{signoff}\n\n"
         f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
         "If this is not for you, no worries. Unsubscribe here and I will take you off:\n"
