@@ -35,7 +35,7 @@ UNSUB_BASE_URL = os.environ.get(
     "UNSUB_BASE_URL", "https://your-listener.example.com/unsubscribe"
 )
 SUBJECT = os.environ.get(
-    "EMAIL_SUBJECT", "Warm union leads + a team that actually shows up"
+    "EMAIL_SUBJECT", "Young producers needed - $15k weeks on this team"
 )
 CALENDLY_LINK = os.environ.get("CALENDLY_LINK", "")
 # Overview / recruiting video shown in Email 2 above the Calendly link.
@@ -102,19 +102,18 @@ def render_plain_text(first_name: str, email: str) -> str:
     signoff = FROM_NAME or "Matt"
     return (
         f"Hey {name},\n\n"
+        "Looking for a few young producers. Some on our team are clearing $15k "
+        "weeks with warm union appointments, not cold dials.\n\n"
         "American Income Life works with about 40,000 unions across the United "
-        "States. Their members get a no-cost benefit through the union, and they "
-        "are told a licensed agent will walk them through it, so the conversation "
-        "is expected, not a cold pitch.\n\n"
+        "States. Members get a no-cost benefit through the union and are told a "
+        "licensed agent will walk them through it, so the conversation is expected.\n\n"
         "You follow a simple phone and Zoom script, review what they already have, "
         "and present the permanent coverage option. Referrals usually come with the "
-        "territory.\n\n"
-        "Alongside the lead flow there is a small producer group that actually "
-        "shows up for each other: morning check-ins, shared standards, people "
-        "trying to get better at the craft.\n\n"
-        "I am filling a few seats on our FL roster and leaning toward younger "
-        "producers who want consistent appointments and a team around them. If that "
-        "sounds useful, reply and I will send a calendar link.\n\n"
+        "territory. There is also a small producer group that actually shows up for "
+        "each other: morning check-ins, shared standards, people trying to get "
+        "better at the craft.\n\n"
+        "If you are young, hungry, and want in, reply and I will send a calendar "
+        "link.\n\n"
         f"Best,\n{signoff}\n\n"
         f"{COMPANY_NAME}\n{COMPANY_ADDRESS}\n\n"
         "If this is not for you, no worries. Unsubscribe here and I will take you off:\n"
