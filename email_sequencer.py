@@ -34,7 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MAX_PER_RUN = int(os.getenv("MAX_PER_RUN", "15"))
-DAILY_CAP = int(os.getenv("DAILY_CAP", "120"))
+DAILY_CAP = int(os.getenv("DAILY_CAP", "150"))
 EMAILS_PER_HOUR = int(os.getenv("EMAILS_PER_HOUR", "60"))
 MIN_INTERVAL = 3600.0 / max(1, EMAILS_PER_HOUR)
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))

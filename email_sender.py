@@ -27,7 +27,7 @@ FROM_NAME = os.environ.get("FROM_NAME", "")
 REPLY_TO = os.environ.get("REPLY_TO", FROM_EMAIL)
 # Soft warmup cap for domain #2 (trademediacontracting.com). Additive to DAILY_CAP.
 # 0 disables. Does NOT consume the primary consulting daily cap.
-WARMUP_DAILY_CAP_2 = int(os.environ.get("WARMUP_DAILY_CAP_2", "15"))
+WARMUP_DAILY_CAP_2 = int(os.environ.get("WARMUP_DAILY_CAP_2", "20"))
 
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "")
 COMPANY_ADDRESS = os.environ.get("COMPANY_ADDRESS", "")

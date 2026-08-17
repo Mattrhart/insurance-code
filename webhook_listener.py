@@ -351,7 +351,7 @@ async def send_pending(key: str = ""):
 
     max_per_run = int(os.getenv("MAX_PER_RUN", "15"))
     # Primary consulting cap — separate from domain #2 warmup.
-    daily_cap = int(os.getenv("DAILY_CAP", "120"))
+    daily_cap = int(os.getenv("DAILY_CAP", "150"))
     warmup_cap = email_sender.WARMUP_DAILY_CAP_2 if email_sender.FROM_EMAIL_2 else 0
     warmup_domain = email_sender.FROM_EMAIL_2 or ""
     max_retries = int(os.getenv("MAX_RETRIES", "3"))
@@ -471,7 +471,7 @@ async def status(key: str = ""):
             "consulting_sent": store.count_sent_today_primary(
                 email_sender.FROM_EMAIL_2 or ""
             ),
-            "consulting_cap": int(os.getenv("DAILY_CAP", "120")),
+            "consulting_cap": int(os.getenv("DAILY_CAP", "150")),
             "warmup_domain_2": (
                 store.count_sent_today_by_domain(email_sender.FROM_EMAIL_2)
                 if email_sender.FROM_EMAIL_2
